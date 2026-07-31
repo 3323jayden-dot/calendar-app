@@ -169,39 +169,84 @@ with st.sidebar:
 
 current_events = current_cal_data["events"]
 
-# ----------------- 3. 日曆主介面 (HTML 原生網格繪製) -----------------
+# ----------------- 3. 畫面中間彈出視窗 (Modal / Dialog) -----------------
+@st.dialog("📅 管理行程")
+def manage_events_dialog(date_str):
+    st.caption(f"日期：**{date_str}** ｜ 日曆：**{current_cal_data['name']}**")
+    
+    # 選擇事件類別 (卡片風格)
+    cat = st.selectbox("📌 選擇事件類別", list(CATEGORY_COLORS.keys()))
+    
+    with st.form(key=f"modal_add_{date_str}"):
+        title = st.text_input("事件標題 *", placeholder="例：數學期末考 / 開會")
+        note = st.text_input("備註 (選填)", placeholder="補充說明...")
+        
+        if st.form_submit_button("➕ 新增事件", use_container_width=True):
+            if title.strip():
+                if date_str not in current_events:
+                    current_events[date_str] = []
+                current_events[date_str].append({
+                    "category": cat,
+                    "title": title.strip(),
+                    "note": note.strip(),
+                    "author": current_user
+                })
+                save_json(CALENDARS_FILE, all_calendars)
+                st.success("新增成功！")
+                st.rerun()
+            else:
+                st.error("請輸入事件標題！")
+                
+    # 顯示當天已存在的行程
+    day_events = current_events.get(date_str, [])
+    if day_events:
+        st.divider()
+        st.markdown("**📋 當日已有行程：**")
+        for idx, evt in enumerate(day_events):
+            c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
+            col_info, col_del = st.columns([4, 1])
+            with col_info:
+                st.markdown(
+                    f"<div style='background:{c['bg']}; color:{c['text']}; padding:6px 10px; border-radius:6px; font-weight:bold; font-size:13px;'>"
+                    f"{c['icon']} [{evt['category']}] {evt['title']} <span style='font-size:11px; color:#666;'>({evt.get('note','')})</span></div>",
+                    unsafe_allow_html=True
+                )
+            with col_del:
+                if st.button("🗑️", key=f"dialog_del_{date_str}_{idx}"):
+                    current_events[date_str].pop(idx)
+                    if not current_events[date_str]:
+                        del current_events[date_str]
+                    save_json(CALENDARS_FILE, all_calendars)
+                    st.rerun()
+
+# ----------------- 4. 日曆主介面與抬頭 -----------------
 today = datetime.date.today()
 if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
 
-col_title, col_prev, col_today, col_next = st.columns([4, 1, 1, 1])
+st.title(f"{current_cal_data['name']}")
 
-with col_title:
-    st.title(f"{current_cal_data['name']}")
-    st.caption(f"🗓️ {st.session_state.current_year} 年 {st.session_state.current_month} 月")
-
-with col_prev:
-    st.write("##")
-    if st.button("＜"):
+# 頂部導覽列：解決手機版 < 今天 > 垂直變形問題
+c_head1, c_head2, c_head3, c_head4 = st.columns([3, 1, 1, 1])
+with c_head1:
+    st.markdown(f"#### 🗓️ {st.session_state.current_year} 年 {st.session_state.current_month} 月")
+with c_head2:
+    if st.button("＜", use_container_width=True):
         if st.session_state.current_month == 1:
             st.session_state.current_month = 12
             st.session_state.current_year -= 1
         else:
             st.session_state.current_month -= 1
         st.rerun()
-
-with col_today:
-    st.write("##")
-    if st.button("今天"):
+with c_head3:
+    if st.button("今天", use_container_width=True):
         st.session_state.current_year = today.year
         st.session_state.current_month = today.month
         st.rerun()
-
-with col_next:
-    st.write("##")
-    if st.button("＞"):
+with c_head4:
+    if st.button("＞", use_container_width=True):
         if st.session_state.current_month == 12:
             st.session_state.current_month = 1
             st.session_state.current_year += 1
@@ -209,7 +254,7 @@ with col_next:
             st.session_state.current_month += 1
         st.rerun()
 
-# 建立 100% 響應式手機友善的 HTML 月曆表格
+# ----------------- 5. 繪製 HTML 響應式網格月曆 -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
 
@@ -230,7 +275,7 @@ html_code = """
     border: 1px solid #e9ecef;
 }
 .cal-table td {
-    height: 65px;
+    height: 60px;
     vertical-align: top;
     padding: 3px;
     border: 1px solid #e9ecef;
@@ -240,7 +285,6 @@ html_code = """
     font-size: 12px;
     font-weight: bold;
     color: #333;
-    margin-bottom: 2px;
 }
 .cal-day-today {
     background-color: #007bff;
@@ -256,7 +300,7 @@ html_code = """
     font-size: 9px;
     border-radius: 3px;
     padding: 1px 2px;
-    margin-bottom: 2px;
+    margin-top: 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -304,67 +348,17 @@ for week in month_days:
 
 html_code += "</tbody></table>"
 
-# 直接渲染渲染月曆 HTML
+# 渲染月曆
 st.markdown(html_code, unsafe_allow_html=True)
 
-# ----------------- 4. 行程編輯與日期選擇 -----------------
-st.divider()
+# ----------------- 6. 點選日期開啟懸浮視窗 (Modal) -----------------
+st.write("##")
+selected_date = st.date_input("👇 點選日期彈出「行程管理視窗」：", value=today)
 
-# 提供手機友善的日期選擇器
-selected_date_input = st.date_input(
-    "📅 選擇要管理/新增行程的日期：",
-    value=datetime.date(st.session_state.current_year, st.session_state.current_month, min(today.day, 28))
-)
-s_date = selected_date_input.strftime("%Y-%m-%d")
+if st.button("✨ 開啟該日行程管理視窗", use_container_width=True):
+    manage_events_dialog(selected_date.strftime("%Y-%m-%d"))
 
-st.subheader(f"📝 行程管理 ({s_date}) — {current_cal_data['name']}")
-
-with st.form(key=f"add_form_{s_date}", clear_on_submit=True):
-    col_cat, col_title_in = st.columns([1, 2])
-    with col_cat:
-        cat = st.selectbox("分類", list(CATEGORY_COLORS.keys()))
-    with col_title_in:
-        title = st.text_input("事件標題 *", placeholder="例如：開會 / 專案發表")
-    
-    note = st.text_input("備註 (選填)", placeholder="例如：線上會議連結")
-    
-    submitted = st.form_submit_button("➕ 新增行程到此日期", use_container_width=True)
-    if submitted and title.strip():
-        if s_date not in current_events:
-            current_events[s_date] = []
-        
-        current_events[s_date].append({
-            "category": cat,
-            "title": title.strip(),
-            "note": note.strip(),
-            "author": current_user
-        })
-        save_json(CALENDARS_FILE, all_calendars)
-        st.success("行程已同步新增！")
-        st.rerun()
-
-if s_date in current_events and current_events[s_date]:
-    for idx, evt in enumerate(current_events[s_date]):
-        c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
-        author_tag = f" (由 {evt.get('author', '未知')} 新增)" if selected_cal_id != personal_cal_id else ""
-        
-        c1, c2 = st.columns([4, 1])
-        with c1:
-            st.markdown(
-                f"<div style='background-color:{c['bg']}; color:{c['text']}; padding:8px 12px; border-radius:8px; font-weight:bold; margin-bottom:5px;'>"
-                f"{c['icon']} [{evt['category']}] {evt['title']} "
-                f"<span style='font-weight:normal; font-size:12px; color:#666;'>({evt.get('note', '')}){author_tag}</span></div>",
-                unsafe_allow_html=True
-            )
-        with c2:
-            if st.button("刪除", key=f"del_{s_date}_{idx}", use_container_width=True):
-                current_events[s_date].pop(idx)
-                if not current_events[s_date]:
-                    del current_events[s_date]
-                save_json(CALENDARS_FILE, all_calendars)
-                st.rerun()
-
-# ----------------- 5. 即將到來的行程 -----------------
+# ----------------- 7. 即將到來的行程 -----------------
 st.divider()
 st.subheader("🔮 即將到來的行程")
 upcoming = []
