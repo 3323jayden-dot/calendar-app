@@ -4,13 +4,10 @@ import calendar
 import json
 import os
 import uuid
-from streamlit_local_storage import LocalStorage
+import hashlib
 
 # 頁面基本設定
 st.set_page_config(page_title="多功能共享線上行事曆", layout="centered")
-
-# 初始化 LocalStorage
-local_storage = LocalStorage()
 
 # 7 大類別配色與圖示
 CATEGORY_COLORS = {
@@ -41,23 +38,28 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ----------------- 1. 本地儲存 (LocalStorage) 登入機制 -----------------
+def generate_token(username, password):
+    """產生簡單的安全驗證 Token"""
+    return hashlib.sha256(f"{username}_{password}_calendar_secret".encode()).hexdigest()[:16]
+
 users = load_json(USER_FILE, {"admin": "123456"})
 
-# 從瀏覽器本地儲存讀取紀錄
-saved_user = local_storage.getItem("calendar_app_user")
+# ----------------- 1. 網址憑證自動登入機制 (100% 重新整理不登出) -----------------
+# 嘗試從 URL 網址參數讀取登入資訊
+query_params = st.query_params
+url_user = query_params.get("user")
+url_token = query_params.get("token")
 
-if "logged_in_user" not in st.session_state:
-    st.session_state.logged_in_user = None
+current_user = None
 
-# 如果 Session 沒有，但 LocalStorage 有紀錄，直接登入
-if st.session_state.logged_in_user is None and saved_user:
-    if saved_user in users:
-        st.session_state.logged_in_user = saved_user
-        st.rerun()
+# 如果網址有登入憑證，自動驗證
+if url_user and url_token and url_user in users:
+    expected_token = generate_token(url_user, users[url_user])
+    if url_token == expected_token:
+        current_user = url_user
 
-# 未登入狀態：顯示登入與註冊頁面
-if st.session_state.logged_in_user is None:
+# 如果尚未透過網址登入，顯示登入/註冊畫面
+if not current_user:
     st.title("🔐 線上行事曆系統")
     tab_login, tab_register = st.tabs(["🔑 登入帳號", "📝 註冊新帳號"])
     
@@ -66,11 +68,12 @@ if st.session_state.logged_in_user is None:
             username = st.text_input("帳號").strip().lower()
             password = st.text_input("密碼", type="password").strip()
             
-            if st.form_submit_button("登入 (永久自動記憶)", use_container_width=True):
+            if st.form_submit_button("登入並保持登入", use_container_width=True):
                 if username in users and users[username] == password:
-                    st.session_state.logged_in_user = username
-                    # 寫入瀏覽器本地儲存 (永遠存在，除非手動清除瀏覽器紀錄)
-                    local_storage.setItem("calendar_app_user", username)
+                    token = generate_token(username, password)
+                    # 將憑證直接寫入網址，這樣重新整理就不會遺失登入狀態
+                    st.query_params["user"] = username
+                    st.query_params["token"] = token
                     st.success(f"登入成功！歡迎，{username}")
                     st.rerun()
                 else:
@@ -93,8 +96,6 @@ if st.session_state.logged_in_user is None:
                     save_json(USER_FILE, users)
                     st.success("🎉 註冊成功！請切換至登入頁面。")
     st.stop()
-
-current_user = st.session_state.logged_in_user
 
 # ----------------- 2. 日曆切換與管理 -----------------
 all_calendars = load_json(CALENDARS_FILE, {})
@@ -119,8 +120,7 @@ with st.sidebar:
     st.write(f"👤 當前帳號：**{current_user}**")
     
     if st.button("🚪 登出系統", use_container_width=True):
-        st.session_state.logged_in_user = None
-        local_storage.deleteItem("calendar_app_user")  # 清除本地儲存
+        st.query_params.clear()  # 清除網址登入憑證
         st.rerun()
         
     st.divider()
