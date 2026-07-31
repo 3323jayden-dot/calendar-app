@@ -4,9 +4,13 @@ import calendar
 import json
 import os
 import uuid
+import extra_streamlit_components as stx
 
 # 頁面基本設定
 st.set_page_config(page_title="多功能共享線上行事曆", layout="centered")
+
+# 初始化 Cookie 管理器
+cookie_manager = stx.CookieManager()
 
 # 7 大類別配色與圖示
 CATEGORY_COLORS = {
@@ -37,23 +41,32 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ----------------- 1. 登入 / 註冊 -----------------
-if "logged_in_user" not in st.session_state:
-    st.session_state.logged_in_user = None
+# ----------------- 1. 自動登入與 Cookie 機制 -----------------
+users = load_json(USER_FILE, {"admin": "123456"})
 
+# 從 Cookie 中讀取已登入的帳號
+cookie_user = cookie_manager.get(cookie="auth_user")
+
+if "logged_in_user" not in st.session_state:
+    st.session_state.logged_in_user = cookie_user if cookie_user in users else None
+
+# 如果尚未登入，顯示登入/註冊畫面
 if st.session_state.logged_in_user is None:
     st.title("🔐 線上行事曆系統")
     tab_login, tab_register = st.tabs(["🔑 登入帳號", "📝 註冊新帳號"])
-    
-    users = load_json(USER_FILE, {"admin": "123456"})
     
     with tab_login:
         with st.form("login_form"):
             username = st.text_input("帳號").strip().lower()
             password = st.text_input("密碼", type="password").strip()
+            remember_me = st.checkbox("記住我的登入狀態 (30 天)", value=True)
+            
             if st.form_submit_button("登入", use_container_width=True):
                 if username in users and users[username] == password:
                     st.session_state.logged_in_user = username
+                    if remember_me:
+                        # 寫入 Cookie，保存 30 天 (30 * 86400 秒)
+                        cookie_manager.set("auth_user", username, expires_at=datetime.datetime.now() + datetime.timedelta(days=30))
                     st.success(f"登入成功！歡迎，{username}")
                     st.rerun()
                 else:
@@ -80,11 +93,8 @@ if st.session_state.logged_in_user is None:
 current_user = st.session_state.logged_in_user
 
 # ----------------- 2. 日曆切換與管理 -----------------
-# 載入所有共用日曆資料
-# 結構: { "cal_id": { "name": "專案組", "members": ["admin"], "events": {...} } }
 all_calendars = load_json(CALENDARS_FILE, {})
 
-# 確定每個使用者都有自己的「個人日曆」
 personal_cal_id = f"personal_{current_user}"
 if personal_cal_id not in all_calendars:
     all_calendars[personal_cal_id] = {
@@ -94,7 +104,6 @@ if personal_cal_id not in all_calendars:
     }
     save_json(CALENDARS_FILE, all_calendars)
 
-# 找出當前使用者可存取的所有日曆
 user_accessible_cals = {
     cid: cdata["name"] 
     for cid, cdata in all_calendars.items() 
@@ -106,6 +115,7 @@ with st.sidebar:
     st.write(f"👤 **{current_user}** 的工作區")
     if st.button("🚪 登出系統", use_container_width=True):
         st.session_state.logged_in_user = None
+        cookie_manager.delete("auth_user")  # 清除 Cookie
         st.rerun()
         
     st.divider()
@@ -120,7 +130,6 @@ with st.sidebar:
     st.divider()
     st.subheader("➕ 共用日曆管理")
     
-    # 建立新的共用日曆
     with st.expander("建立新的共用日曆"):
         with st.form("create_cal_form"):
             new_cal_name = st.text_input("日曆名稱", placeholder="例如：專案小組 / 家族行事曆")
@@ -136,7 +145,6 @@ with st.sidebar:
                     st.success("建立成功！")
                     st.rerun()
 
-    # 透過邀請碼加入共用日曆
     with st.expander("輸入邀請碼加入"):
         with st.form("join_cal_form"):
             invite_code = st.text_input("請貼上邀請碼 (ID)").strip()
@@ -152,7 +160,6 @@ with st.sidebar:
                 else:
                     st.error("找不到此邀請碼對應的日曆！")
 
-    # 顯示目前選取日曆的資訊與邀請碼
     current_cal_data = all_calendars[selected_cal_id]
     if selected_cal_id != personal_cal_id:
         st.divider()
@@ -161,7 +168,6 @@ with st.sidebar:
         st.code(selected_cal_id, language="text")
         st.caption(f"成員：{', '.join(current_cal_data['members'])}")
 
-# 當前選中日曆的行程資料
 current_events = current_cal_data["events"]
 
 # ----------------- 3. 日曆主介面 -----------------
@@ -262,7 +268,6 @@ if "selected_date" in st.session_state:
             if s_date not in current_events:
                 current_events[s_date] = []
             
-            # 紀錄是誰新增的
             current_events[s_date].append({
                 "category": cat,
                 "title": title.strip(),
