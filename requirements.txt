@@ -1,2 +1,2 @@
 streamlit
-extra-streamlit-components
+streamlit-local-storage
