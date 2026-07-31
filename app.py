@@ -41,16 +41,25 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ----------------- 1. 永久 Cookie 免登入機制 -----------------
+# ----------------- 1. 永久 Cookie 免登入機制 (修正讀取時間差) -----------------
 users = load_json(USER_FILE, {"admin": "123456"})
 
-# 自動從瀏覽器讀取之前的登入 Cookie
-cookie_user = cookie_manager.get(cookie="auth_user_forever")
-
+# 初始化登入 Session State
 if "logged_in_user" not in st.session_state:
-    st.session_state.logged_in_user = cookie_user if (cookie_user and cookie_user in users) else None
+    st.session_state.logged_in_user = None
 
-# 若尚未登入，顯示登入/註冊畫面
+# 讀取 Cookie 內容
+all_cookies = cookie_manager.get_all()
+
+# 如果 session_state 還沒有紀錄登入，嘗試從 Cookie 恢復
+if st.session_state.logged_in_user is None:
+    if all_cookies is not None:
+        cookie_user = all_cookies.get("auth_user_forever")
+        if cookie_user and cookie_user in users:
+            st.session_state.logged_in_user = cookie_user
+            st.rerun()  # 讀取到 Cookie 後自動重新整理載入主頁面
+
+# 未登入時顯示登入與註冊畫面
 if st.session_state.logged_in_user is None:
     st.title("🔐 線上行事曆系統")
     tab_login, tab_register = st.tabs(["🔑 登入帳號", "📝 註冊新帳號"])
@@ -63,13 +72,13 @@ if st.session_state.logged_in_user is None:
             if st.form_submit_button("登入 (自動永久記住)", use_container_width=True):
                 if username in users and users[username] == password:
                     st.session_state.logged_in_user = username
-                    # 寫入 Cookie，效期設定 3650 天 (約 10 年，達成永久免登入)
+                    # 寫入 Cookie（效期約 10 年，達成永久登入）
                     cookie_manager.set(
                         "auth_user_forever", 
                         username, 
                         expires_at=datetime.datetime.now() + datetime.timedelta(days=3650)
                     )
-                    st.success(f"登入成功！已為您啟用永久免登入。歡迎，{username}")
+                    st.success(f"登入成功！歡迎，{username}")
                     st.rerun()
                 else:
                     st.error("帳號或密碼錯誤！")
@@ -118,7 +127,7 @@ with st.sidebar:
     
     if st.button("🚪 登出系統", use_container_width=True):
         st.session_state.logged_in_user = None
-        cookie_manager.delete("auth_user_forever")  # 主動刪除 Cookie
+        cookie_manager.delete("auth_user_forever")  # 手動登出時刪除 Cookie
         st.rerun()
         
     st.divider()
@@ -306,7 +315,7 @@ if "selected_date" in st.session_state:
 
 # ----------------- 5. 即將到來的行程 -----------------
 st.divider()
-st.subheader("🔮 即將到來的行程")
+st.subheader("🔮 即將到来的行程")
 upcoming = []
 for d_str, evts in current_events.items():
     evt_date = datetime.datetime.strptime(d_str, "%Y-%m-%d").date()
