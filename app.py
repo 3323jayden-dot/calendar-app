@@ -5,9 +5,7 @@ import json
 import os
 
 # 頁面基本設定
-st.set_page_config(page_title="簡約行事曆", layout="centered")
-
-DATA_FILE = "calendar_events.json"
+st.set_page_config(page_title="個人專屬線上行事曆", layout="centered")
 
 # 7 大類別配色與圖示
 CATEGORY_COLORS = {
@@ -19,6 +17,40 @@ CATEGORY_COLORS = {
     "出題": {"bg": "#E0F7FA", "text": "#0288D1", "icon": "📋"},
     "行政": {"bg": "#F5F5F5", "text": "#616161", "icon": "📁"},
 }
+
+# ----------------- 使用者登入機制 -----------------
+# 預設帳號密碼對照表 (你可以自由修改或新增帳密)
+USER_DATABASE = {
+    "admin": "123456",
+    "jayden": "password",
+    "user1": "1234"
+}
+
+if "logged_in_user" not in st.session_state:
+    st.session_state.logged_in_user = None
+
+# 如果尚未登入，顯示登入畫面
+if st.session_state.logged_in_user is None:
+    st.title("🔐 請先登入系統")
+    st.info("輸入帳號密碼以存取您的個人專屬行事曆")
+    
+    with st.form("login_form"):
+        username = st.text_input("帳號").strip().lower()
+        password = st.text_input("密碼", type="password").strip()
+        submit_login = st.form_submit_button("登入", use_container_width=True)
+        
+        if submit_login:
+            if username in USER_DATABASE and USER_DATABASE[username] == password:
+                st.session_state.logged_in_user = username
+                st.success(f"登入成功！歡迎，{username}")
+                st.rerun()
+            else:
+                st.error("帳號或密碼錯誤，請重新輸入！")
+    st.stop()  # 未登入則中斷執行後續畫面
+
+# ----------------- 個人專屬檔案讀取與儲存 -----------------
+current_user = st.session_state.logged_in_user
+DATA_FILE = f"calendar_{current_user}.json"  # 每個人獨立的檔案名稱
 
 def load_events():
     if os.path.exists(DATA_FILE):
@@ -36,13 +68,24 @@ def save_events(events):
 if "events" not in st.session_state:
     st.session_state.events = load_events()
 
+# ----------------- 頂部導覽列（含登出） -----------------
+col_user_info, col_logout = st.columns([4, 1])
+with col_user_info:
+    st.caption(f"👤 當前使用者：**{current_user}** (專屬資料檔：`{DATA_FILE}`)")
+with col_logout:
+    if st.button("🚪 登出", use_container_width=True):
+        st.session_state.logged_in_user = None
+        if "events" in st.session_state:
+            del st.session_state.events
+        st.rerun()
+
+# ----------------- 主介面：日曆系統 -----------------
 today = datetime.date.today()
 if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
 
-# 標題與月份切換
 col_title, col_prev, col_today, col_next = st.columns([4, 1, 1, 1])
 
 with col_title:
@@ -81,7 +124,7 @@ cols = st.columns(7)
 for idx, (day_name, color) in enumerate(weekdays):
     cols[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:{color}; padding-bottom:5px;'>{day_name}</div>", unsafe_allow_html=True)
 
-# 月曆網格生成
+# 月曆網格
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
 
@@ -97,7 +140,6 @@ for week in month_days:
                 
                 day_events = st.session_state.events.get(date_key, [])
                 
-                # 組裝按鈕內部的 HTML (標題 + 事件標籤全部塞進按鈕裡)
                 tags_html = ""
                 for evt in day_events[:2]:
                     c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
@@ -106,14 +148,11 @@ for week in month_days:
                 if len(day_events) > 2:
                     tags_html += f"<div style='font-size:9px; color:#888;'>+{len(day_events)-2}條</div>"
 
-                # 判定選取與今天樣式
                 btn_type = "primary" if is_today else "secondary"
                 
-                # 日期按鈕
                 if st.button(f"{day}", key=f"btn_{date_key}", type=btn_type, use_container_width=True):
                     st.session_state.selected_date = date_key
                 
-                # 如果有事件，在按鈕正下方印出卡片式標籤
                 if tags_html:
                     st.markdown(f"<div style='margin-top:-8px; margin-bottom:8px;'>{tags_html}</div>", unsafe_allow_html=True)
 
