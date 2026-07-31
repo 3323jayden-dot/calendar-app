@@ -191,13 +191,11 @@ def manage_events_dialog(date_str):
                     "author": current_user
                 })
                 save_json(CALENDARS_FILE, all_calendars)
-                # 清除選取日期的 query_param 並重新載入
                 st.query_params.pop("selected_date", None)
                 st.rerun()
             else:
                 st.error("請輸入事件標題！")
                 
-    # 顯示當天已存在的行程
     day_events = current_events.get(date_str, [])
     if day_events:
         st.divider()
@@ -220,50 +218,87 @@ def manage_events_dialog(date_str):
                     st.query_params.pop("selected_date", None)
                     st.rerun()
 
-# ----------------- 4. 日曆主介面 -----------------
+# ----------------- 4. 日曆主介面與抬頭 -----------------
 today = datetime.date.today()
 if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
 
+# 處理導覽按鈕點擊事件
+nav_action = query_params.get("nav")
+if nav_action == "prev":
+    if st.session_state.current_month == 1:
+        st.session_state.current_month = 12
+        st.session_state.current_year -= 1
+    else:
+        st.session_state.current_month -= 1
+    st.query_params.pop("nav", None)
+    st.rerun()
+elif nav_action == "today":
+    st.session_state.current_year = today.year
+    st.session_state.current_month = today.month
+    st.query_params.pop("nav", None)
+    st.rerun()
+elif nav_action == "next":
+    if st.session_state.current_month == 12:
+        st.session_state.current_month = 1
+        st.session_state.current_year += 1
+    else:
+        st.session_state.current_month += 1
+    st.query_params.pop("nav", None)
+    st.rerun()
+
 st.title(f"{current_cal_data['name']}")
 
-# 防手機擠壓的橫向導覽列 (使用原生 HTML Flexbox，防折行)
-c_prev, c_title, c_today, c_next = st.columns([1, 4, 1.5, 1])
-with c_prev:
-    if st.button("＜"):
-        if st.session_state.current_month == 1:
-            st.session_state.current_month = 12
-            st.session_state.current_year -= 1
-        else:
-            st.session_state.current_month -= 1
-        st.rerun()
+# 🛠️ 【絕不換行】HTML Flexbox 超完美導覽列
+base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
+link_prefix = f"?{base_url_params}&" if base_url_params else "?"
 
-with c_title:
-    st.markdown(f"<h4 style='text-align:center; margin:0;'>🗓️ {st.session_state.current_year} 年 {st.session_state.current_month} 月</h4>", unsafe_allow_html=True)
+nav_html = f"""
+<style>
+.nav-container {{
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    margin-bottom: 10px !important;
+    gap: 5px !important;
+}}
+.nav-btn {{
+    display: inline-block;
+    padding: 6px 12px;
+    background-color: #f0f2f6;
+    color: #31333F;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: bold;
+    text-align: center;
+    border: 1px solid #d6d8db;
+    white-space: nowrap;
+}}
+.nav-title {{
+    font-size: 16px;
+    font-weight: bold;
+    color: #111;
+    white-space: nowrap;
+}}
+</style>
 
-with c_today:
-    if st.button("今天"):
-        st.session_state.current_year = today.year
-        st.session_state.current_month = today.month
-        st.rerun()
-
-with c_next:
-    if st.button("＞"):
-        if st.session_state.current_month == 12:
-            st.session_state.current_month = 1
-            st.session_state.current_year += 1
-        else:
-            st.session_state.current_month += 1
-        st.rerun()
+<div class="nav-container">
+    <a href="{link_prefix}nav=prev" class="nav-btn" target="_self">＜</a>
+    <span class="nav-title">🗓️ {st.session_state.current_year} 年 {st.session_state.current_month} 月</span>
+    <a href="{link_prefix}nav=today" class="nav-btn" target="_self">今天</a>
+    <a href="{link_prefix}nav=next" class="nav-btn" target="_self">＞</a>
+</div>
+"""
+st.markdown(nav_html, unsafe_allow_html=True)
 
 # ----------------- 5. 繪製可點擊的 HTML 網格月曆 -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
-
-# 建立 URL base
-base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
 
 html_code = """
 <style>
@@ -271,7 +306,7 @@ html_code = """
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
-    margin-top: 10px;
+    margin-top: 5px;
     font-family: system-ui, -apple-system, sans-serif;
 }
 .cal-table th {
@@ -282,12 +317,11 @@ html_code = """
     border: 1px solid #e9ecef;
 }
 .cal-table td {
-    height: 65px;
+    height: 60px;
     vertical-align: top;
     padding: 2px;
     border: 1px solid #e9ecef;
     background-color: #ffffff;
-    position: relative;
 }
 .cal-cell-link {
     display: block;
@@ -358,15 +392,14 @@ for week in month_days:
             if len(day_events) > 2:
                 tags_html += f"<div style='font-size:8px; color:#888;'>+{len(day_events)-2}</div>"
                 
-            # 拼接帶有 selected_date 參數的超連結
-            link_url = f"?{base_url_params}&selected_date={date_key}" if base_url_params else f"?selected_date={date_key}"
+            link_url = f"{link_prefix}selected_date={date_key}"
             
             html_code += f"<td><a href='{link_url}' target='_self' class='cal-cell-link'>{day_num_html}{tags_html}</a></td>"
     html_code += "</tr>"
 
 html_code += "</tbody></table>"
 
-# 渲染可點擊的月曆
+# 渲染月曆
 st.markdown(html_code, unsafe_allow_html=True)
 
 # ----------------- 6. 偵測點擊事件並彈出 Dialog -----------------
