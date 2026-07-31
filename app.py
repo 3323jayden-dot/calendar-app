@@ -9,7 +9,7 @@ st.set_page_config(page_title="簡約行事曆", layout="centered")
 
 DATA_FILE = "calendar_events.json"
 
-# 7 大類別配色定義
+# 7 大類別配色與圖示
 CATEGORY_COLORS = {
     "考試": {"bg": "#FFF0F0", "text": "#E53935", "icon": "📖"},
     "作業": {"bg": "#FFFDE7", "text": "#FB8C00", "icon": "📄"},
@@ -20,7 +20,6 @@ CATEGORY_COLORS = {
     "行政": {"bg": "#F5F5F5", "text": "#616161", "icon": "📁"},
 }
 
-# 讀取與儲存 JSON
 def load_events():
     if os.path.exists(DATA_FILE):
         try:
@@ -37,14 +36,13 @@ def save_events(events):
 if "events" not in st.session_state:
     st.session_state.events = load_events()
 
-# 月份狀態控制
 today = datetime.date.today()
 if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
 
-# 標題與切換月份列
+# 標題與月份切換
 col_title, col_prev, col_today, col_next = st.columns([4, 1, 1, 1])
 
 with col_title:
@@ -77,35 +75,11 @@ with col_next:
             st.session_state.current_month += 1
         st.rerun()
 
-# 自訂 CSS 樣式 (模仿桌面版卡片與標籤風格)
-st.markdown("""
-<style>
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-    }
-    .weekday-header {
-        text-align: center;
-        font-weight: bold;
-        font-size: 16px;
-        padding: 5px 0;
-    }
-    .today-card {
-        background-color: #00BFA5 !important;
-        color: white !important;
-        border-radius: 8px;
-        padding: 4px;
-        text-align: center;
-        font-weight: bold;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# 星期表頭
+# 星期欄位
 weekdays = [("日", "#FF6B6B"), ("一", "#333"), ("二", "#333"), ("三", "#333"), ("四", "#333"), ("五", "#333"), ("六", "#00B2FE")]
 cols = st.columns(7)
 for idx, (day_name, color) in enumerate(weekdays):
-    cols[idx].markdown(f"<div class='weekday-header' style='color:{color};'>{day_name}</div>", unsafe_allow_html=True)
+    cols[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:{color}; padding-bottom:5px;'>{day_name}</div>", unsafe_allow_html=True)
 
 # 月曆網格生成
 cal = calendar.Calendar(firstweekday=6)
@@ -115,42 +89,40 @@ for week in month_days:
     grid_cols = st.columns(7)
     for col_idx, day in enumerate(week):
         with grid_cols[col_idx]:
-            if day == 0:
-                st.write("")  # 非本月日期留空
-            else:
+            if day != 0:
                 date_key = f"{st.session_state.current_year}-{st.session_state.current_month:02d}-{day:02d}"
                 is_today = (st.session_state.current_year == today.year and 
                             st.session_state.current_month == today.month and 
                             day == today.day)
                 
-                # 按鈕顯示日期與事件數
                 day_events = st.session_state.events.get(date_key, [])
-                btn_label = f"📌 {day}" if day_events else f"{day}"
                 
-                # 點擊日期按鈕開啟彈窗設定
-                if st.button(btn_label, key=f"btn_{date_key}", type="primary" if is_today else "secondary"):
-                    st.session_state.selected_date = date_key
-
-                # 顯示該日期的事件彩色小標籤
+                # 組裝按鈕內部的 HTML (標題 + 事件標籤全部塞進按鈕裡)
+                tags_html = ""
                 for evt in day_events[:2]:
                     c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
-                    st.markdown(
-                        f"<div style='background-color:{c['bg']}; color:{c['text']}; "
-                        f"font-size:11px; padding:2px 4px; border-radius:4px; margin-top:2px; "
-                        f"white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>"
-                        f"{c['icon']}{evt['title']}</div>",
-                        unsafe_allow_html=True
-                    )
+                    tags_html += f"<div style='background:{c['bg']}; color:{c['text']}; font-size:10px; border-radius:3px; margin-top:2px; padding:1px 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{c['icon']}{evt['title']}</div>"
+                
                 if len(day_events) > 2:
-                    st.caption(f"+{len(day_events)-2} 更多")
+                    tags_html += f"<div style='font-size:9px; color:#888;'>+{len(day_events)-2}條</div>"
 
-# 管理選取日期的事件 (彈窗區域)
+                # 判定選取與今天樣式
+                btn_type = "primary" if is_today else "secondary"
+                
+                # 日期按鈕
+                if st.button(f"{day}", key=f"btn_{date_key}", type=btn_type, use_container_width=True):
+                    st.session_state.selected_date = date_key
+                
+                # 如果有事件，在按鈕正下方印出卡片式標籤
+                if tags_html:
+                    st.markdown(f"<div style='margin-top:-8px; margin-bottom:8px;'>{tags_html}</div>", unsafe_allow_html=True)
+
+# 管理選取日期的行程
 if "selected_date" in st.session_state:
     st.divider()
     s_date = st.session_state.selected_date
     st.subheader(f"📝 管理行程：{s_date}")
     
-    # 新增事件表單
     with st.form(key=f"add_form_{s_date}", clear_on_submit=True):
         col_cat, col_title_in, col_note_in = st.columns([1, 2, 2])
         with col_cat:
@@ -158,9 +130,9 @@ if "selected_date" in st.session_state:
         with col_title_in:
             title = st.text_input("事件標題 *", placeholder="例如：數學考試")
         with col_note_in:
-            note = st.text_input("備註 (選填)", placeholder="例如：章節 1~3")
+            note = st.text_input("備註 (選填)", placeholder="例如：第 1~3 章")
         
-        submitted = st.form_submit_button("➕ 新增行程")
+        submitted = st.form_submit_button("➕ 新增行程", use_container_width=True)
         if submitted and title.strip():
             if s_date not in st.session_state.events:
                 st.session_state.events[s_date] = []
@@ -170,30 +142,29 @@ if "selected_date" in st.session_state:
                 "note": note.strip()
             })
             save_events(st.session_state.events)
-            st.success("已新增！")
+            st.success("已成功新增！")
             st.rerun()
 
-    # 顯示並允許刪除該日期的行程
     if s_date in st.session_state.events and st.session_state.events[s_date]:
         for idx, evt in enumerate(st.session_state.events[s_date]):
             c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
             c1, c2 = st.columns([5, 1])
             with c1:
                 st.markdown(
-                    f"<div style='background-color:{c['bg']}; color:{c['text']}; padding:8px 12px; border-radius:8px; font-weight:bold;'>"
+                    f"<div style='background-color:{c['bg']}; color:{c['text']}; padding:8px 12px; border-radius:8px; font-weight:bold; margin-bottom:5px;'>"
                     f"{c['icon']} [{evt['category']}] {evt['title']} "
                     f"<span style='font-weight:normal; font-size:12px; color:#666;'>({evt.get('note', '')})</span></div>",
                     unsafe_allow_html=True
                 )
             with c2:
-                if st.button("刪除", key=f"del_{s_date}_{idx}"):
+                if st.button("刪除", key=f"del_{s_date}_{idx}", use_container_width=True):
                     st.session_state.events[s_date].pop(idx)
                     if not st.session_state.events[s_date]:
                         del st.session_state.events[s_date]
                     save_events(st.session_state.events)
                     st.rerun()
 
-# 即將到來的行程區塊
+# 即將到來的行程
 st.divider()
 st.subheader("🔮 即將到來的行程")
 upcoming = []
