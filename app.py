@@ -18,39 +18,77 @@ CATEGORY_COLORS = {
     "行政": {"bg": "#F5F5F5", "text": "#616161", "icon": "📁"},
 }
 
-# ----------------- 使用者登入機制 -----------------
-# 預設帳號密碼對照表 (你可以自由修改或新增帳密)
-USER_DATABASE = {
-    "admin": "123456",
-    "jayden": "password",
-    "user1": "1234"
-}
+USER_FILE = "users.json"
+
+# ----------------- 帳號密碼檔 讀取與儲存 -----------------
+def load_users():
+    if os.path.exists(USER_FILE):
+        try:
+            with open(USER_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # 預設至少有一個管理員帳號 (帳號: admin, 密碼: 123456)
+    default_users = {"admin": "123456"}
+    save_users(default_users)
+    return default_users
+
+def save_users(users):
+    with open(USER_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
 
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 
-# 如果尚未登入，顯示登入畫面
+# ----------------- 登入與註冊頁面 -----------------
 if st.session_state.logged_in_user is None:
-    st.title("🔐 請先登入系統")
-    st.info("輸入帳號密碼以存取您的個人專屬行事曆")
+    st.title("🔐 線上行事曆系統")
     
-    with st.form("login_form"):
-        username = st.text_input("帳號").strip().lower()
-        password = st.text_input("密碼", type="password").strip()
-        submit_login = st.form_submit_button("登入", use_container_width=True)
-        
-        if submit_login:
-            if username in USER_DATABASE and USER_DATABASE[username] == password:
-                st.session_state.logged_in_user = username
-                st.success(f"登入成功！歡迎，{username}")
-                st.rerun()
-            else:
-                st.error("帳號或密碼錯誤，請重新輸入！")
-    st.stop()  # 未登入則中斷執行後續畫面
+    # 切換登入 / 註冊 分頁
+    tab_login, tab_register = st.tabs(["🔑 登入帳號", "📝 註冊新帳號"])
+    
+    users = load_users()
+    
+    # --- 分頁 1：登入 ---
+    with tab_login:
+        with st.form("login_form"):
+            username = st.text_input("帳號").strip().lower()
+            password = st.text_input("密碼", type="password").strip()
+            submit_login = st.form_submit_button("登入", use_container_width=True)
+            
+            if submit_login:
+                if username in users and users[username] == password:
+                    st.session_state.logged_in_user = username
+                    st.success(f"登入成功！歡迎，{username}")
+                    st.rerun()
+                else:
+                    st.error("帳號或密碼錯誤，請重新輸入！")
+                    
+    # --- 分頁 2：註冊 ---
+    with tab_register:
+        with st.form("register_form"):
+            new_user = st.text_input("新帳號名稱 (建議英文/數字)").strip().lower()
+            new_pass = st.text_input("設定密碼", type="password").strip()
+            confirm_pass = st.text_input("確認密碼", type="password").strip()
+            submit_register = st.form_submit_button("註冊並建立專屬行事曆", use_container_width=True)
+            
+            if submit_register:
+                if not new_user or not new_pass:
+                    st.warning("請填寫完整的帳號與密碼！")
+                elif new_user in users:
+                    st.error("這個帳號名稱已經有人使用了，請換一個！")
+                elif new_pass != confirm_pass:
+                    st.error("兩次輸入的密碼不一致，請重新確認！")
+                else:
+                    users[new_user] = new_pass
+                    save_users(users)
+                    st.success("🎉 註冊成功！請切換到「登入帳號」頁面進行登入。")
+
+    st.stop()  # 未登入則停在此處
 
 # ----------------- 個人專屬檔案讀取與儲存 -----------------
 current_user = st.session_state.logged_in_user
-DATA_FILE = f"calendar_{current_user}.json"  # 每個人獨立的檔案名稱
+DATA_FILE = f"calendar_{current_user}.json"
 
 def load_events():
     if os.path.exists(DATA_FILE):
@@ -68,10 +106,10 @@ def save_events(events):
 if "events" not in st.session_state:
     st.session_state.events = load_events()
 
-# ----------------- 頂部導覽列（含登出） -----------------
+# ----------------- 頂部導覽列 -----------------
 col_user_info, col_logout = st.columns([4, 1])
 with col_user_info:
-    st.caption(f"👤 當前使用者：**{current_user}** (專屬資料檔：`{DATA_FILE}`)")
+    st.caption(f"👤 當前使用者：**{current_user}** (獨立資料檔：`{DATA_FILE}`)")
 with col_logout:
     if st.button("🚪 登出", use_container_width=True):
         st.session_state.logged_in_user = None
