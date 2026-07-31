@@ -110,7 +110,6 @@ user_accessible_cals = {
     if current_user in cdata.get("members", [])
 }
 
-# 側邊欄：個人資訊與日曆切換
 with st.sidebar:
     st.write(f"👤 當前帳號：**{current_user}**")
     
@@ -170,35 +169,12 @@ with st.sidebar:
 
 current_events = current_cal_data["events"]
 
-# ----------------- 3. 日曆主介面 -----------------
+# ----------------- 3. 日曆主介面 (HTML 原生網格繪製) -----------------
 today = datetime.date.today()
 if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
-
-# 🛠️ 強制手機版 7 欄防變形 CSS 注入
-st.markdown("""
-<style>
-/* 強制在手機螢幕上也維持 7 欄排版 */
-div[data-testid="stHorizontalBlock"] {
-    display: flex !important;
-    flex-direction: row !important;
-    flex-wrap: nowrap !important;
-    gap: 2px !important;
-}
-div[data-testid="column"] {
-    width: 14.28% !important;
-    flex: 1 1 14.28% !important;
-    min-width: 0 !important;
-}
-/* 微調按鈕與內邊距，適合手機觸控 */
-div[data-testid="column"] button {
-    padding: 4px 0px !important;
-    font-size: 11px !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
 col_title, col_prev, col_today, col_next = st.columns([4, 1, 1, 1])
 
@@ -233,104 +209,173 @@ with col_next:
             st.session_state.current_month += 1
         st.rerun()
 
-# 星期標頭
-weekdays = [("日", "#FF6B6B"), ("一", "#333"), ("二", "#333"), ("三", "#333"), ("四", "#333"), ("五", "#333"), ("六", "#00B2FE")]
-cols = st.columns(7)
-for idx, (day_name, color) in enumerate(weekdays):
-    cols[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:{color}; font-size:12px;'>{day_name}</div>", unsafe_allow_html=True)
-
-# 月曆網格
+# 建立 100% 響應式手機友善的 HTML 月曆表格
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
 
+html_code = """
+<style>
+.cal-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-top: 10px;
+    font-family: system-ui, -apple-system, sans-serif;
+}
+.cal-table th {
+    text-align: center;
+    padding: 6px 0;
+    font-size: 13px;
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+}
+.cal-table td {
+    height: 65px;
+    vertical-align: top;
+    padding: 3px;
+    border: 1px solid #e9ecef;
+    background-color: #ffffff;
+}
+.cal-day-num {
+    font-size: 12px;
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 2px;
+}
+.cal-day-today {
+    background-color: #007bff;
+    color: white;
+    border-radius: 50%;
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    text-align: center;
+    line-height: 18px;
+}
+.cal-tag {
+    font-size: 9px;
+    border-radius: 3px;
+    padding: 1px 2px;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+</style>
+<table class="cal-table">
+<thead>
+  <tr>
+    <th style="color:#E53935;">日</th>
+    <th>一</th>
+    <th>二</th>
+    <th>三</th>
+    <th>四</th>
+    <th>五</th>
+    <th style="color:#0288D1;">六</th>
+  </tr>
+</thead>
+<tbody>
+"""
+
 for week in month_days:
-    grid_cols = st.columns(7)
-    for col_idx, day in enumerate(week):
-        with grid_cols[col_idx]:
-            if day != 0:
-                date_key = f"{st.session_state.current_year}-{st.session_state.current_month:02d}-{day:02d}"
-                is_today = (st.session_state.current_year == today.year and 
-                            st.session_state.current_month == today.month and 
-                            day == today.day)
+    html_code += "<tr>"
+    for day in week:
+        if day == 0:
+            html_code += "<td style='background:#fcfcfc;'></td>"
+        else:
+            date_key = f"{st.session_state.current_year}-{st.session_state.current_month:02d}-{day:02d}"
+            is_today = (st.session_state.current_year == today.year and 
+                        st.session_state.current_month == today.month and 
+                        day == today.day)
+            
+            day_num_html = f"<span class='cal-day-today'>{day}</span>" if is_today else f"<span class='cal-day-num'>{day}</span>"
+            
+            day_events = current_events.get(date_key, [])
+            tags_html = ""
+            for evt in day_events[:2]:
+                c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
+                tags_html += f"<div class='cal-tag' style='background:{c['bg']}; color:{c['text']};'>{c['icon']}{evt['title']}</div>"
+            
+            if len(day_events) > 2:
+                tags_html += f"<div style='font-size:8px; color:#888;'>+{len(day_events)-2}</div>"
                 
-                day_events = current_events.get(date_key, [])
-                
-                tags_html = ""
-                for evt in day_events[:2]:
-                    c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
-                    tags_html += f"<div style='background:{c['bg']}; color:{c['text']}; font-size:9px; border-radius:2px; margin-top:1px; padding:0px 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{c['icon']}{evt['title']}</div>"
-                
-                if len(day_events) > 2:
-                    tags_html += f"<div style='font-size:8px; color:#888;'>+{len(day_events)-2}</div>"
+            html_code += f"<td>{day_num_html}{tags_html}</td>"
+    html_code += "</tr>"
 
-                btn_type = "primary" if is_today else "secondary"
-                
-                if st.button(f"{day}", key=f"btn_{date_key}", type=btn_type, use_container_width=True):
-                    st.session_state.selected_date = date_key
-                
-                if tags_html:
-                    st.markdown(f"<div style='margin-top:-6px; margin-bottom:4px;'>{tags_html}</div>", unsafe_allow_html=True)
+html_code += "</tbody></table>"
 
-# ----------------- 4. 行程編輯管理 -----------------
-if "selected_date" in st.session_state:
-    st.divider()
-    s_date = st.session_state.selected_date
-    st.subheader(f"📝 管理行程 ({s_date}) — 於 {current_cal_data['name']}")
+# 直接渲染渲染月曆 HTML
+st.markdown(html_code, unsafe_allow_html=True)
+
+# ----------------- 4. 行程編輯與日期選擇 -----------------
+st.divider()
+
+# 提供手機友善的日期選擇器
+selected_date_input = st.date_input(
+    "📅 選擇要管理/新增行程的日期：",
+    value=datetime.date(st.session_state.current_year, st.session_state.current_month, min(today.day, 28))
+)
+s_date = selected_date_input.strftime("%Y-%m-%d")
+
+st.subheader(f"📝 行程管理 ({s_date}) — {current_cal_data['name']}")
+
+with st.form(key=f"add_form_{s_date}", clear_on_submit=True):
+    col_cat, col_title_in = st.columns([1, 2])
+    with col_cat:
+        cat = st.selectbox("分類", list(CATEGORY_COLORS.keys()))
+    with col_title_in:
+        title = st.text_input("事件標題 *", placeholder="例如：開會 / 專案發表")
     
-    with st.form(key=f"add_form_{s_date}", clear_on_submit=True):
-        col_cat, col_title_in, col_note_in = st.columns([1, 2, 2])
-        with col_cat:
-            cat = st.selectbox("分類", list(CATEGORY_COLORS.keys()))
-        with col_title_in:
-            title = st.text_input("事件標題 *", placeholder="例如：開會 / 專案發表")
-        with col_note_in:
-            note = st.text_input("備註 (選填)", placeholder="例如：線上會議連結")
+    note = st.text_input("備註 (選填)", placeholder="例如：線上會議連結")
+    
+    submitted = st.form_submit_button("➕ 新增行程到此日期", use_container_width=True)
+    if submitted and title.strip():
+        if s_date not in current_events:
+            current_events[s_date] = []
         
-        submitted = st.form_submit_button("➕ 新增行程", use_container_width=True)
-        if submitted and title.strip():
-            if s_date not in current_events:
-                current_events[s_date] = []
-            
-            current_events[s_date].append({
-                "category": cat,
-                "title": title.strip(),
-                "note": note.strip(),
-                "author": current_user
-            })
-            save_json(CALENDARS_FILE, all_calendars)
-            st.success("行程已同步新增！")
-            st.rerun()
+        current_events[s_date].append({
+            "category": cat,
+            "title": title.strip(),
+            "note": note.strip(),
+            "author": current_user
+        })
+        save_json(CALENDARS_FILE, all_calendars)
+        st.success("行程已同步新增！")
+        st.rerun()
 
-    if s_date in current_events and current_events[s_date]:
-        for idx, evt in enumerate(current_events[s_date]):
-            c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
-            author_tag = f" (由 {evt.get('author', '未知')} 新增)" if selected_cal_id != personal_cal_id else ""
-            
-            c1, c2 = st.columns([5, 1])
-            with c1:
-                st.markdown(
-                    f"<div style='background-color:{c['bg']}; color:{c['text']}; padding:8px 12px; border-radius:8px; font-weight:bold; margin-bottom:5px;'>"
-                    f"{c['icon']} [{evt['category']}] {evt['title']} "
-                    f"<span style='font-weight:normal; font-size:12px; color:#666;'>({evt.get('note', '')}){author_tag}</span></div>",
-                    unsafe_allow_html=True
-                )
-            with c2:
-                if st.button("刪除", key=f"del_{s_date}_{idx}", use_container_width=True):
-                    current_events[s_date].pop(idx)
-                    if not current_events[s_date]:
-                        del current_events[s_date]
-                    save_json(CALENDARS_FILE, all_calendars)
-                    st.rerun()
+if s_date in current_events and current_events[s_date]:
+    for idx, evt in enumerate(current_events[s_date]):
+        c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
+        author_tag = f" (由 {evt.get('author', '未知')} 新增)" if selected_cal_id != personal_cal_id else ""
+        
+        c1, c2 = st.columns([4, 1])
+        with c1:
+            st.markdown(
+                f"<div style='background-color:{c['bg']}; color:{c['text']}; padding:8px 12px; border-radius:8px; font-weight:bold; margin-bottom:5px;'>"
+                f"{c['icon']} [{evt['category']}] {evt['title']} "
+                f"<span style='font-weight:normal; font-size:12px; color:#666;'>({evt.get('note', '')}){author_tag}</span></div>",
+                unsafe_allow_html=True
+            )
+        with c2:
+            if st.button("刪除", key=f"del_{s_date}_{idx}", use_container_width=True):
+                current_events[s_date].pop(idx)
+                if not current_events[s_date]:
+                    del current_events[s_date]
+                save_json(CALENDARS_FILE, all_calendars)
+                st.rerun()
 
 # ----------------- 5. 即將到來的行程 -----------------
 st.divider()
 st.subheader("🔮 即將到來的行程")
 upcoming = []
 for d_str, evts in current_events.items():
-    evt_date = datetime.datetime.strptime(d_str, "%Y-%m-%d").date()
-    if evt_date >= today:
-        for evt in evts:
-            upcoming.append((evt_date, d_str, evt))
+    try:
+        evt_date = datetime.datetime.strptime(d_str, "%Y-%m-%d").date()
+        if evt_date >= today:
+            for evt in evts:
+                upcoming.append((evt_date, d_str, evt))
+    except ValueError:
+        pass
 
 upcoming.sort(key=lambda x: x[0])
 
