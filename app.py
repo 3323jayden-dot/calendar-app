@@ -4,13 +4,13 @@ import calendar
 import json
 import os
 import uuid
-import extra_streamlit_components as stx
+from streamlit_local_storage import LocalStorage
 
 # 頁面基本設定
 st.set_page_config(page_title="多功能共享線上行事曆", layout="centered")
 
-# 初始化 Cookie 管理器
-cookie_manager = stx.CookieManager()
+# 初始化 LocalStorage
+local_storage = LocalStorage()
 
 # 7 大類別配色與圖示
 CATEGORY_COLORS = {
@@ -41,25 +41,22 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ----------------- 1. 永久 Cookie 免登入機制 (修正讀取時間差) -----------------
+# ----------------- 1. 本地儲存 (LocalStorage) 登入機制 -----------------
 users = load_json(USER_FILE, {"admin": "123456"})
 
-# 初始化登入 Session State
+# 從瀏覽器本地儲存讀取紀錄
+saved_user = local_storage.getItem("calendar_app_user")
+
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 
-# 讀取 Cookie 內容
-all_cookies = cookie_manager.get_all()
+# 如果 Session 沒有，但 LocalStorage 有紀錄，直接登入
+if st.session_state.logged_in_user is None and saved_user:
+    if saved_user in users:
+        st.session_state.logged_in_user = saved_user
+        st.rerun()
 
-# 如果 session_state 還沒有紀錄登入，嘗試從 Cookie 恢復
-if st.session_state.logged_in_user is None:
-    if all_cookies is not None:
-        cookie_user = all_cookies.get("auth_user_forever")
-        if cookie_user and cookie_user in users:
-            st.session_state.logged_in_user = cookie_user
-            st.rerun()  # 讀取到 Cookie 後自動重新整理載入主頁面
-
-# 未登入時顯示登入與註冊畫面
+# 未登入狀態：顯示登入與註冊頁面
 if st.session_state.logged_in_user is None:
     st.title("🔐 線上行事曆系統")
     tab_login, tab_register = st.tabs(["🔑 登入帳號", "📝 註冊新帳號"])
@@ -69,15 +66,11 @@ if st.session_state.logged_in_user is None:
             username = st.text_input("帳號").strip().lower()
             password = st.text_input("密碼", type="password").strip()
             
-            if st.form_submit_button("登入 (自動永久記住)", use_container_width=True):
+            if st.form_submit_button("登入 (永久自動記憶)", use_container_width=True):
                 if username in users and users[username] == password:
                     st.session_state.logged_in_user = username
-                    # 寫入 Cookie（效期約 10 年，達成永久登入）
-                    cookie_manager.set(
-                        "auth_user_forever", 
-                        username, 
-                        expires_at=datetime.datetime.now() + datetime.timedelta(days=3650)
-                    )
+                    # 寫入瀏覽器本地儲存 (永遠存在，除非手動清除瀏覽器紀錄)
+                    local_storage.setItem("calendar_app_user", username)
                     st.success(f"登入成功！歡迎，{username}")
                     st.rerun()
                 else:
@@ -127,7 +120,7 @@ with st.sidebar:
     
     if st.button("🚪 登出系統", use_container_width=True):
         st.session_state.logged_in_user = None
-        cookie_manager.delete("auth_user_forever")  # 手動登出時刪除 Cookie
+        local_storage.deleteItem("calendar_app_user")  # 清除本地儲存
         st.rerun()
         
     st.divider()
@@ -315,7 +308,7 @@ if "selected_date" in st.session_state:
 
 # ----------------- 5. 即將到來的行程 -----------------
 st.divider()
-st.subheader("🔮 即將到来的行程")
+st.subheader("🔮 即將到來的行程")
 upcoming = []
 for d_str, evts in current_events.items():
     evt_date = datetime.datetime.strptime(d_str, "%Y-%m-%d").date()
