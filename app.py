@@ -4,9 +4,13 @@ import calendar
 import json
 import os
 import uuid
+import extra_streamlit_components as stx
 
 # 頁面基本設定
 st.set_page_config(page_title="多功能共享線上行事曆", layout="centered")
+
+# 初始化 Cookie 管理器
+cookie_manager = stx.CookieManager()
 
 # 7 大類別配色與圖示
 CATEGORY_COLORS = {
@@ -19,6 +23,7 @@ CATEGORY_COLORS = {
     "行政": {"bg": "#F5F5F5", "text": "#616161", "icon": "📁"},
 }
 
+USER_FILE = "users.json"
 CALENDARS_FILE = "shared_calendars.json"
 
 # ----------------- JSON 檔案讀寫工具 -----------------
@@ -36,39 +41,71 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ----------------- 1. Streamlit 原生永久登入機制 -----------------
-# 檢查使用者是否已經登入
-if not st.experimental_user.is_logged_in:
-    st.title("🔐 線上行事曆系統")
-    st.info("💡 採用 Google / GitHub 快速驗證，登入後將**永久保持登入狀態**，無需重複輸入帳密！")
-    
-    st.write("##")
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        # 觸發 Streamlit 原生 OAuth 登入
-        if st.button("🔑 使用第三方帳號永久登入", use_container_width=True, type="primary"):
-            st.login()
-            
-    st.stop()  # 未登入時中斷執行
+# ----------------- 1. 永久 Cookie 免登入機制 -----------------
+users = load_json(USER_FILE, {"admin": "123456"})
 
-# 登入成功，取得用戶唯一 Email 與名字
-current_user = st.experimental_user.email
-display_name = getattr(st.experimental_user, "name", current_user.split("@")[0])
+# 自動從瀏覽器讀取之前的登入 Cookie
+cookie_user = cookie_manager.get(cookie="auth_user_forever")
+
+if "logged_in_user" not in st.session_state:
+    st.session_state.logged_in_user = cookie_user if (cookie_user and cookie_user in users) else None
+
+# 若尚未登入，顯示登入/註冊畫面
+if st.session_state.logged_in_user is None:
+    st.title("🔐 線上行事曆系統")
+    tab_login, tab_register = st.tabs(["🔑 登入帳號", "📝 註冊新帳號"])
+    
+    with tab_login:
+        with st.form("login_form"):
+            username = st.text_input("帳號").strip().lower()
+            password = st.text_input("密碼", type="password").strip()
+            
+            if st.form_submit_button("登入 (自動永久記住)", use_container_width=True):
+                if username in users and users[username] == password:
+                    st.session_state.logged_in_user = username
+                    # 寫入 Cookie，效期設定 3650 天 (約 10 年，達成永久免登入)
+                    cookie_manager.set(
+                        "auth_user_forever", 
+                        username, 
+                        expires_at=datetime.datetime.now() + datetime.timedelta(days=3650)
+                    )
+                    st.success(f"登入成功！已為您啟用永久免登入。歡迎，{username}")
+                    st.rerun()
+                else:
+                    st.error("帳號或密碼錯誤！")
+                    
+    with tab_register:
+        with st.form("register_form"):
+            new_user = st.text_input("新帳號名稱").strip().lower()
+            new_pass = st.text_input("設定密碼", type="password").strip()
+            confirm_pass = st.text_input("確認密碼", type="password").strip()
+            if st.form_submit_button("註冊帳號", use_container_width=True):
+                if not new_user or not new_pass:
+                    st.warning("請填寫完整的帳號與密碼！")
+                elif new_user in users:
+                    st.error("這個帳號名稱已經有人使用了！")
+                elif new_pass != confirm_pass:
+                    st.error("兩次輸入的密碼不一致！")
+                else:
+                    users[new_user] = new_pass
+                    save_json(USER_FILE, users)
+                    st.success("🎉 註冊成功！請切換至登入頁面。")
+    st.stop()
+
+current_user = st.session_state.logged_in_user
 
 # ----------------- 2. 日曆切換與管理 -----------------
 all_calendars = load_json(CALENDARS_FILE, {})
 
-# 自動為新用戶建立「個人獨立日曆」
-personal_cal_id = f"personal_{current_user.replace('@', '_at_').replace('.', '_')}"
+personal_cal_id = f"personal_{current_user}"
 if personal_cal_id not in all_calendars:
     all_calendars[personal_cal_id] = {
-        "name": f"🔒 {display_name} 的個人日曆",
+        "name": f"🔒 {current_user} 的個人日曆",
         "members": [current_user],
         "events": {}
     }
     save_json(CALENDARS_FILE, all_calendars)
 
-# 找出當前使用者可存取的所有日曆
 user_accessible_cals = {
     cid: cdata["name"] 
     for cid, cdata in all_calendars.items() 
@@ -77,11 +114,11 @@ user_accessible_cals = {
 
 # 側邊欄：個人資訊與日曆切換
 with st.sidebar:
-    st.write(f"👤 **{display_name}**")
-    st.caption(f"Email: `{current_user}`")
+    st.write(f"👤 當前帳號：**{current_user}**")
     
     if st.button("🚪 登出系統", use_container_width=True):
-        st.logout()
+        st.session_state.logged_in_user = None
+        cookie_manager.delete("auth_user_forever")  # 主動刪除 Cookie
         st.rerun()
         
     st.divider()
@@ -240,7 +277,7 @@ if "selected_date" in st.session_state:
                 "category": cat,
                 "title": title.strip(),
                 "note": note.strip(),
-                "author": display_name
+                "author": current_user
             })
             save_json(CALENDARS_FILE, all_calendars)
             st.success("行程已同步新增！")
