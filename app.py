@@ -39,26 +39,22 @@ def save_json(filepath, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def generate_token(username, password):
-    """產生簡單的安全驗證 Token"""
     return hashlib.sha256(f"{username}_{password}_calendar_secret".encode()).hexdigest()[:16]
 
 users = load_json(USER_FILE, {"admin": "123456"})
 
-# ----------------- 1. 網址憑證自動登入機制 (100% 重新整理不登出) -----------------
-# 嘗試從 URL 網址參數讀取登入資訊
+# ----------------- 1. 網址憑證自動登入機制 -----------------
 query_params = st.query_params
 url_user = query_params.get("user")
 url_token = query_params.get("token")
 
 current_user = None
 
-# 如果網址有登入憑證，自動驗證
 if url_user and url_token and url_user in users:
     expected_token = generate_token(url_user, users[url_user])
     if url_token == expected_token:
         current_user = url_user
 
-# 如果尚未透過網址登入，顯示登入/註冊畫面
 if not current_user:
     st.title("🔐 線上行事曆系統")
     tab_login, tab_register = st.tabs(["🔑 登入帳號", "📝 註冊新帳號"])
@@ -71,7 +67,6 @@ if not current_user:
             if st.form_submit_button("登入並保持登入", use_container_width=True):
                 if username in users and users[username] == password:
                     token = generate_token(username, password)
-                    # 將憑證直接寫入網址，這樣重新整理就不會遺失登入狀態
                     st.query_params["user"] = username
                     st.query_params["token"] = token
                     st.success(f"登入成功！歡迎，{username}")
@@ -120,7 +115,7 @@ with st.sidebar:
     st.write(f"👤 當前帳號：**{current_user}**")
     
     if st.button("🚪 登出系統", use_container_width=True):
-        st.query_params.clear()  # 清除網址登入憑證
+        st.query_params.clear()
         st.rerun()
         
     st.divider()
@@ -135,7 +130,6 @@ with st.sidebar:
     st.divider()
     st.subheader("➕ 共用日曆管理")
     
-    # 建立新的共用日曆
     with st.expander("建立新的共用日曆"):
         with st.form("create_cal_form"):
             new_cal_name = st.text_input("日曆名稱", placeholder="例如：專案小組 / 家族行事曆")
@@ -151,7 +145,6 @@ with st.sidebar:
                     st.success("建立成功！")
                     st.rerun()
 
-    # 透過邀請碼加入共用日曆
     with st.expander("輸入邀請碼加入"):
         with st.form("join_cal_form"):
             invite_code = st.text_input("請貼上邀請碼 (ID)").strip()
@@ -183,6 +176,29 @@ if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
+
+# 🛠️ 強制手機版 7 欄防變形 CSS 注入
+st.markdown("""
+<style>
+/* 強制在手機螢幕上也維持 7 欄排版 */
+div[data-testid="stHorizontalBlock"] {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    gap: 2px !important;
+}
+div[data-testid="column"] {
+    width: 14.28% !important;
+    flex: 1 1 14.28% !important;
+    min-width: 0 !important;
+}
+/* 微調按鈕與內邊距，適合手機觸控 */
+div[data-testid="column"] button {
+    padding: 4px 0px !important;
+    font-size: 11px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 col_title, col_prev, col_today, col_next = st.columns([4, 1, 1, 1])
 
@@ -221,7 +237,7 @@ with col_next:
 weekdays = [("日", "#FF6B6B"), ("一", "#333"), ("二", "#333"), ("三", "#333"), ("四", "#333"), ("五", "#333"), ("六", "#00B2FE")]
 cols = st.columns(7)
 for idx, (day_name, color) in enumerate(weekdays):
-    cols[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:{color}; padding-bottom:5px;'>{day_name}</div>", unsafe_allow_html=True)
+    cols[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:{color}; font-size:12px;'>{day_name}</div>", unsafe_allow_html=True)
 
 # 月曆網格
 cal = calendar.Calendar(firstweekday=6)
@@ -242,10 +258,10 @@ for week in month_days:
                 tags_html = ""
                 for evt in day_events[:2]:
                     c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
-                    tags_html += f"<div style='background:{c['bg']}; color:{c['text']}; font-size:10px; border-radius:3px; margin-top:2px; padding:1px 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{c['icon']}{evt['title']}</div>"
+                    tags_html += f"<div style='background:{c['bg']}; color:{c['text']}; font-size:9px; border-radius:2px; margin-top:1px; padding:0px 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{c['icon']}{evt['title']}</div>"
                 
                 if len(day_events) > 2:
-                    tags_html += f"<div style='font-size:9px; color:#888;'>+{len(day_events)-2}條</div>"
+                    tags_html += f"<div style='font-size:8px; color:#888;'>+{len(day_events)-2}</div>"
 
                 btn_type = "primary" if is_today else "secondary"
                 
@@ -253,7 +269,7 @@ for week in month_days:
                     st.session_state.selected_date = date_key
                 
                 if tags_html:
-                    st.markdown(f"<div style='margin-top:-8px; margin-bottom:8px;'>{tags_html}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='margin-top:-6px; margin-bottom:4px;'>{tags_html}</div>", unsafe_allow_html=True)
 
 # ----------------- 4. 行程編輯管理 -----------------
 if "selected_date" in st.session_state:
