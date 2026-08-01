@@ -55,15 +55,21 @@ query_params = st.query_params
 # 從 Streamlit Secrets 讀取敏感資訊（不寫死在程式碼中）
 google_secrets = st.secrets.get("google", {})
 CLIENT_ID = google_secrets.get("client_id", "")
-CLIENT_SECRET = google_secrets.get("client_secret")
+CLIENT_SECRET = google_secrets.get("client_secret", "")
 REDIRECT_URI = google_secrets.get("redirect_uri", "https://calendar-app-1.streamlit.app/")
 
 def get_google_auth_url():
+    # 補全包含 Google Calendar 的完整 Scope
+    scopes = [
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/calendar"
+    ]
     params = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
         "response_type": "code",
-        "scope": "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
+        "scope": " ".join(scopes),
         "access_type": "offline",
         "prompt": "consent"
     }
@@ -167,7 +173,7 @@ if not current_user_email:
         st.markdown(google_btn_html, unsafe_allow_html=True)
         st.markdown("<div style='text-align:center; color:#888; font-size:12px;'>—— 或使用傳統帳號密碼 ——</div>", unsafe_allow_html=True)
 
-    # 捷徑 B: 傳統帳密登入 / 註冊（完全保留！）
+    # 捷徑 B: 傳統帳密登入 / 註冊
     tab_login, tab_register = st.tabs(["🔑 傳統帳密登入", "📝 註冊新帳號"])
     
     with tab_login:
