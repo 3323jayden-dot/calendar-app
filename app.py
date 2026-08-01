@@ -495,28 +495,36 @@ st.markdown(
 base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
 link_prefix = f"?{base_url_params}&" if base_url_params else "?"
 
-# ----------------- 7. 繪製 HTML 月曆 -----------------
+# ----------------- 7. 繪製 HTML 月曆 (支援 Apple 式手勢滑動) -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
 
+# 導入 CSS 手勢動畫與 JavaScript 滑動偵測
 html_code = """
 <style>
+.cal-container {
+    touch-action: pan-y; /* 允許垂直滾動，水平留給手勢切換 */
+    user-select: none;
+    -webkit-user-select: none;
+}
 .cal-table {
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
     margin-top: 5px;
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    transition: transform 0.2s ease-out;
 }
 .cal-table th {
     text-align: center;
-    padding: 6px 0;
+    padding: 8px 0;
     font-size: 13px;
     background-color: #f8f9fa;
     border: 1px solid #e9ecef;
+    color: #666;
 }
 .cal-table td {
-    height: 60px;
+    height: 65px;
     vertical-align: top;
     padding: 2px;
     border: 1px solid #e9ecef;
@@ -531,39 +539,44 @@ html_code = """
 }
 .cal-day-num {
     font-size: 12px;
-    font-weight: bold;
+    font-weight: 600;
     color: #333;
+    margin-left: 2px;
 }
 .cal-day-today {
-    background-color: #007bff;
+    background-color: #ff3b30; /* Apple 經典紅色 Today 圓點 */
     color: white;
     border-radius: 50%;
     display: inline-block;
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     text-align: center;
-    line-height: 18px;
+    line-height: 20px;
+    font-size: 12px;
+    font-weight: bold;
 }
 .cal-tag {
     font-size: 9px;
-    border-radius: 3px;
-    padding: 1px 2px;
+    border-radius: 4px;
+    padding: 2px 3px;
     margin-top: 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 </style>
+
+<div id="swipe-calendar-box" class="cal-container">
 <table class="cal-table">
 <thead>
   <tr>
-    <th style="color:#E53935;">日</th>
+    <th style="color:#ff3b30;">日</th>
     <th>一</th>
     <th>二</th>
     <th>三</th>
     <th>四</th>
     <th>五</th>
-    <th style="color:#0288D1;">六</th>
+    <th style="color:#007aff;">六</th>
   </tr>
 </thead>
 <tbody>
@@ -589,20 +602,63 @@ for week in month_days:
                 tags_html += f"<div class='cal-tag' style='background:{c['bg']}; color:{c['text']};'>{c['icon']}{evt['title']}</div>"
             
             if len(day_events) > 2:
-                tags_html += f"<div style='font-size:8px; color:#888;'>+{len(day_events)-2}</div>"
+                tags_html += f"<div style='font-size:8px; color:#888; margin-left:2px;'>+{len(day_events)-2}</div>"
                 
             link_url = f"{link_prefix}selected_date={date_key}"
             html_code += f"<td><a href='{link_url}' target='_self' class='cal-cell-link'>{day_num_html}{tags_html}</a></td>"
     html_code += "</tr>"
 
-html_code += "</tbody></table>"
+html_code += """
+</tbody>
+</table>
+</div>
+
+<!-- 滑動觸發腳本 (Touch / Swipe Script) -->
+<script>
+(function() {
+    let startX = 0;
+    let startY = 0;
+    const calendarBox = document.getElementById('swipe-calendar-box');
+
+    if (!calendarBox) return;
+
+    calendarBox.addEventListener('touchstart', function(e) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+    }, {passive: true});
+
+    calendarBox.addEventListener('touchend', function(e) {
+        let endX = e.changedTouches[0].clientX;
+        let endY = e.changedTouches[0].clientY;
+        
+        let diffX = endX - startX;
+        let diffY = endY - startY;
+
+        // 確保是水平滑動（避免垂直滑動網頁時誤觸）
+        if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+            if (diffX < 0) {
+                // 向左滑 -> 下個月
+                const nextBtn = window.parent.document.querySelector('button[key="btn_next_month"]') || 
+                                Array.from(window.parent.document.querySelectorAll('button')).find(b => b.innerText.includes('下個月'));
+                if (nextBtn) nextBtn.click();
+            } else {
+                // 向右滑 -> 上個月
+                const prevBtn = window.parent.document.querySelector('button[key="btn_prev_month"]') || 
+                                Array.from(window.parent.document.querySelectorAll('button')).find(b => b.innerText.includes('上個月'));
+                if (prevBtn) prevBtn.click();
+            }
+        }
+    }, {passive: true});
+})();
+</script>
+"""
+
 st.markdown(html_code, unsafe_allow_html=True)
 
 # 偵測點擊事件彈窗
 selected_date_param = query_params.get("selected_date")
 if selected_date_param:
     manage_events_dialog(selected_date_param)
-
 # ----------------- 8. 即將到來的行程 -----------------
 st.divider()
 st.subheader("🔮 即將到來的行程")
