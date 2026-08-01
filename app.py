@@ -198,7 +198,7 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格與行程管理 (支援點擊日期查看)
+# TAB 1: 📅 視覺化日曆網格與行程管理 (點擊日期直接跳出彈窗對話框)
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -207,32 +207,80 @@ with tab_cal:
         st.warning("⚠️ 目前為訪客預覽模式。登入後可新增與編輯您的專屬行程。")
 
     today = date.today()
-    if "selected_cal_date" not in st.session_state:
-        st.session_state["selected_cal_date"] = str(today)
 
-    # 年月選擇器
-    c_y, c_m, c_info = st.columns([1, 1, 2])
+    # 1. 定義跳出的對話框 (st.dialog)
+    @st.dialog("📅 行程安排與管理", width="large")
+    def show_event_dialog(selected_date_str):
+        st.subheader(f"📌 {selected_date_str} 的行程")
+        
+        # 篩選當天行程
+        day_events = [e for e in events if e.get("date") == selected_date_str]
+        
+        if not day_events:
+            st.info("💡 當天目前沒有任何行程安排。")
+        else:
+            for idx, ev in enumerate(day_events):
+                with st.expander(f"📌 {ev['title']} ({ev.get('category', '一般')})", expanded=True):
+                    st.write(f"**備註**：{ev.get('description') if ev.get('description') else '無'}")
+                    st.caption(f"建立者：{ev.get('creator', '未知')}")
+                    
+                    if st.session_state.logged_in and (st.session_state.user_email == ev.get('creator') or st.session_state.user_email == ADMIN_EMAIL):
+                        if st.button("🗑️ 刪除此行程", key=f"dlg_del_{selected_date_str}_{idx}"):
+                            events.remove(ev)
+                            save_data(EVENTS_FILE, events)
+                            st.success("行程已刪除！")
+                            st.rerun()
+
+        st.divider()
+        
+        # 彈窗內直接新增行程
+        st.markdown("### ➕ 新增當天行程")
+        if st.session_state.logged_in:
+            with st.form(f"dialog_add_form_{selected_date_str}", clear_on_submit=True):
+                e_title = st.text_input("行程名稱（必填）")
+                e_cate = st.selectbox("行程分類", ["工作", "個人", "重要提醒", "休閒"])
+                e_desc = st.text_area("行程詳細備註")
+                
+                if st.form_submit_button("💾 儲存並新增行程", use_container_width=True):
+                    if not e_title.strip():
+                        st.error("請填寫行程名稱！")
+                    else:
+                        new_ev = {
+                            "title": e_title.strip(),
+                            "date": selected_date_str,
+                            "category": e_cate,
+                            "description": e_desc.strip(),
+                            "creator": st.session_state.user_email
+                        }
+                        events.append(new_ev)
+                        save_data(EVENTS_FILE, events)
+                        st.success("行程新增成功！")
+                        st.rerun()
+        else:
+            st.info("🔒 請於側邊欄登入帳號後進行行程新增。")
+
+
+    # 2. 年月選擇器
+    c_y, c_m, _ = st.columns([1, 1, 2])
     with c_y:
         sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
     with c_m:
         sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
-    with c_info:
-        st.info(f"💡 目前選擇查看的日期：**{st.session_state['selected_cal_date']}**")
 
     st.markdown("---")
     
-    # 自訂 CSS 防破版（強制微型按鈕與精緻邊框）
+    # 3. 按鈕排版 CSS 修正
     st.markdown("""
     <style>
     div[data-testid="column"] button {
         padding: 4px 0px !important;
-        min-height: 48px !important;
+        min-height: 52px !important;
         font-size: 13px !important;
     }
     </style>
     """, unsafe_allow_html=True)
     
-    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽（點擊下方日期可直接切換）")
+    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽（點擊日期跳出行程視窗）")
     
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
@@ -242,7 +290,7 @@ with tab_cal:
     for idx, day_name in enumerate(weekdays):
         cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#555;'>週{day_name}</div>", unsafe_allow_html=True)
         
-    # 渲染點擊式月曆格子
+    # 渲染日曆格子 (點擊觸發 Dialog 彈窗)
     for week in cal:
         cols = st.columns(7)
         for idx, day in enumerate(week):
@@ -250,80 +298,15 @@ with tab_cal:
                 cols[idx].write("")
             else:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
-                # 統計當天行程
                 day_events = [e for e in events if e.get("date") == day_str]
                 
-                # 建立按鈕顯示文字
                 btn_label = f"{day}"
                 if day_events:
                     btn_label += f"\n📌({len(day_events)})"
                     
-                # 點擊按鈕即可切換全局選擇日期
+                # 點擊按鈕直接開啟彈窗
                 if cols[idx].button(btn_label, key=f"btn_cal_{day_str}", use_container_width=True):
-                    st.session_state["selected_cal_date"] = day_str
-                    st.rerun()
-
-    st.markdown("---")
-    
-    # --- 行程詳細區與新增表單 ---
-    col_add, col_view = st.columns([1, 2])
-    
-    selected_date_str = st.session_state["selected_cal_date"]
-    current_selected_date = datetime.strptime(selected_date_str, "%Y-%m-%d").date()
-
-    with col_add:
-        st.subheader("➕ 新增行程")
-        if st.session_state.logged_in:
-            with st.form("add_event_form", clear_on_submit=True):
-                e_title = st.text_input("行程名稱（必填）")
-                # 日期自動帶入點選的日期
-                e_date = st.date_input("行程日期", value=current_selected_date)
-                e_cate = st.selectbox("行程分類", ["工作", "個人", "重要提醒", "休閒"])
-                e_desc = st.text_area("行程詳細備註")
-                
-                if st.form_submit_button("送出新增"):
-                    if not e_title.strip():
-                        st.error("請填寫行程名稱！")
-                    else:
-                        new_ev = {
-                            "title": e_title.strip(),
-                            "date": str(e_date),
-                            "category": e_cate,
-                            "description": e_desc.strip(),
-                            "creator": st.session_state.user_email
-                        }
-                        events.append(new_ev)
-                        save_data(EVENTS_FILE, events)
-                        # 更新選擇日期為剛新增的日期
-                        st.session_state["selected_cal_date"] = str(e_date)
-                        st.success("行程新增成功！")
-                        st.rerun()
-        else:
-            st.info("請於側邊欄登入後進行行程新增。")
-
-    with col_view:
-        st.subheader(f"📋 {selected_date_str} 行程明細")
-        
-        filter_cate = st.selectbox("分類篩選", ["全部", "工作", "個人", "重要提醒", "休閒"])
-        
-        # 篩選當前點選日期的行程
-        date_events = [e for e in events if e.get("date") == selected_date_str]
-        if filter_cate != "全部":
-            date_events = [e for e in date_events if e.get("category") == filter_cate]
-            
-        if not date_events:
-            st.info(f"💡 {selected_date_str} 目前沒有安排任何行程。")
-        else:
-            for idx, ev in enumerate(date_events):
-                with st.expander(f"📌 {ev['title']} ({ev.get('category', '一般')})", expanded=True):
-                    st.write(f"**詳細備註**：{ev.get('description') if ev.get('description') else '無'}")
-                    st.caption(f"建立者：{ev.get('creator', '未知')}")
-                    
-                    if st.session_state.logged_in and (st.session_state.user_email == ev.get('creator') or st.session_state.user_email == ADMIN_EMAIL):
-                        if st.button("🗑️ 刪除此行程", key=f"del_ev_{selected_date_str}_{idx}"):
-                            events.remove(ev)
-                            save_data(EVENTS_FILE, events)
-                            st.rerun()
+                    show_event_dialog(day_str)
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
