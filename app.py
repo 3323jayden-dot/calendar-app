@@ -777,3 +777,16 @@ if upcoming:
         )
 else:
     st.info("近期尚無行程規劃。")
+# ----------------- 9. 頁尾客服資訊 (小字顯示) -----------------
+st.divider()
+
+footer_html = """
+<div style="text-align: center; color: #888888; font-size: 12px; margin-top: 20px; line-height: 1.6;">
+    <p style="margin: 0;">💬 <b>客服與技術支援</b></p>
+    <p style="margin: 2px 0;">服務時間：週一至週五 09:00 - 18:00</p>
+    <p style="margin: 2px 0;">客服信箱：<a href="mailto:3323jayden@gmail.com" style="color: #007aff;">support@example.com</a> | 官方 Line：@your_line_id</p>
+    <p style="margin: 6px 0 0 0; font-size: 10px; color: #aaa;">© 2026 共享線上行事曆系統 All Rights Reserved.</p>
+</div>
+"""
+
+st.markdown(footer_html, unsafe_allow_html=True)
