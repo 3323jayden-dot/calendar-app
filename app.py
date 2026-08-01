@@ -5,7 +5,6 @@ import io
 import zipfile
 import re
 from datetime import datetime, date
-import calendar
 from PIL import Image, ImageEnhance, ImageOps
 import pandas as pd
 import pypdf
@@ -23,14 +22,14 @@ st.set_page_config(
 USERS_FILE = "users.json"
 EVENTS_FILE = "events.json"
 
-# 💡 管理員 Email 帳號
+# 💡 請填寫您自己的管理員 Email 帳號
 ADMIN_EMAIL = "admin@example.com"
 
-# 💡 PWA 桌面圖示網址
+# 💡 PWA 桌面圖示直連網址
 ICON_URL = "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg"
 
 # ==============================================================================
-# 1. PWA 手機安裝與 Manifest 注入 (含 iOS 圖示支援)
+# 1. PWA 手機安裝與 Manifest 注入 (支援 iOS & Android)
 # ==============================================================================
 pwa_html = f"""
 <script>
@@ -84,7 +83,7 @@ st.components.v1.html(pwa_html, height=0)
 
 
 # ==============================================================================
-# 2. JSON 資料讀寫與初始化輔助函式
+# 2. JSON 資料讀寫與輔助函式
 # ==============================================================================
 def load_data(filename, default_val):
     if os.path.exists(filename):
@@ -104,7 +103,7 @@ events = load_data(EVENTS_FILE, [])
 
 
 # ==============================================================================
-# 3. 會員驗證系統與側邊欄 (含 Admin 密碼查看管理)
+# 3. 會員驗證系統與側邊欄 (完整的登入 / 註冊 / 管理員後台)
 # ==============================================================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -114,7 +113,7 @@ if "user_email" not in st.session_state:
 st.sidebar.title("🔐 會員系統")
 
 if not st.session_state.logged_in:
-    auth_mode = st.sidebar.radio("選擇模式", ["帳號登入", "會員註冊"])
+    auth_mode = st.sidebar.radio("選擇操作選項", ["帳號登入", "會員註冊"])
     
     email_input = st.sidebar.text_input("電子郵件 (Email)").strip().lower()
     password_input = st.sidebar.text_input("密碼", type="password")
@@ -125,65 +124,68 @@ if not st.session_state.logged_in:
             if not email_input or not password_input or not name_input:
                 st.sidebar.error("請完整填寫所有欄位！")
             elif email_input in users:
-                st.sidebar.error("此信箱已經註冊過了！")
+                st.sidebar.error("此電子郵件已經註冊過了！")
             else:
                 users[email_input] = {
                     "name": name_input,
                     "password": password_input
                 }
                 save_data(USERS_FILE, users)
-                st.sidebar.success("註冊成功！請切換至「帳號登入」。")
+                st.sidebar.success("🎉 註冊成功！請切換至「帳號登入」。")
                 
     elif auth_mode == "帳號登入":
         if st.sidebar.button("登入系統", use_container_width=True):
             if email_input in users and users[email_input]["password"] == password_input:
                 st.session_state.logged_in = True
                 st.session_state.user_email = email_input
+                st.sidebar.success("登入成功！")
                 st.rerun()
             else:
                 st.sidebar.error("帳號或密碼輸入錯誤！")
 else:
     current_user_name = users.get(st.session_state.user_email, {}).get("name", "會員")
     st.sidebar.success(f"歡迎回來，**{current_user_name}**！")
+    st.sidebar.caption(f"目前帳號：`{st.session_state.user_email}`")
+    
     if st.sidebar.button("安全登出", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.user_email = ""
         st.rerun()
 
-# 🛡️ 管理員專屬後台 (查看/修改所有密碼)
+# 🛡️ 管理員專屬後台 (查看/修改所有帳號與密碼)
 if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
     st.sidebar.divider()
     with st.sidebar.expander("🛡️ 系統後台管理 (Admin Only)", expanded=False):
-        st.caption("管理者可在此直接檢視與管理所有帳號密碼：")
+        st.markdown("**管理員帳號控制台**")
         if not users:
-            st.info("尚無註冊會員。")
+            st.info("尚無註冊會員資料。")
         else:
-            selected_user_email = st.selectbox("選擇會員帳號", list(users.keys()))
+            selected_user_email = st.selectbox("選擇要管理的會員", list(users.keys()))
             if selected_user_email:
                 u_info = users[selected_user_email]
-                st.write(f"**暱稱**: {u_info.get('name', '')}")
+                st.text(f"用戶暱稱: {u_info.get('name', '未設定')}")
                 
-                # 呈現與修改明碼
+                # 欄位直接呈現目前明碼，可檢視與編輯
                 new_pwd_input = st.text_input("該帳號密碼", value=u_info.get("password", ""), key="admin_pwd_edit")
                 
                 c_save, c_del = st.columns(2)
                 with c_save:
-                    if st.button("💾 更新密碼"):
+                    if st.button("💾 更新資料"):
                         users[selected_user_email]["password"] = new_pwd_input
                         save_data(USERS_FILE, users)
-                        st.success("密碼已更新！")
+                        st.success("更新成功！")
                         st.rerun()
                 with c_del:
                     if selected_user_email != ADMIN_EMAIL:
-                        if st.button("🗑️ 刪除用戶"):
+                        if st.button("🗑️ 刪除帳號"):
                             del users[selected_user_email]
                             save_data(USERS_FILE, users)
-                            st.warning("用戶已刪除")
+                            st.warning("帳號已刪除")
                             st.rerun()
 
 
 # ==============================================================================
-# 4. 主畫面：分頁整合功能 (Tabs)
+# 4. 主畫面：分頁與模組 (Tabs)
 # ==============================================================================
 st.title("⚡ 多功能數位工作助理與行事曆")
 
@@ -199,10 +201,10 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 # TAB 1: 📅 雲端行事曆核心
 # ------------------------------------------------------------------------------
 with tab_cal:
-    st.header("📅 雲端共享行事曆")
+    st.header("📅 共享雲端行事曆")
     
     if not st.session_state.logged_in:
-        st.warning("⚠️ 系統目前為訪客檢視模式。請從左側邊欄登入以新增、編輯或管理您的個人行程。")
+        st.warning("⚠️ 目前為訪客預覽模式。請先登入帳號以新增、管理您的行程。")
     
     col_add, col_view = st.columns([1, 2])
     
@@ -231,12 +233,10 @@ with tab_cal:
                         st.success("行程新增成功！")
                         st.rerun()
         else:
-            st.info("登入後即可在此新增行程資訊。")
+            st.info("請於側邊欄登入後進行行程新增。")
 
     with col_view:
-        st.subheader("📋 行程清單與檢視")
-        
-        # 分類篩選器
+        st.subheader("📋 行程清單")
         filter_cate = st.selectbox("篩選分類", ["全部", "工作", "個人", "重要提醒", "休閒"])
         
         filtered_events = events
@@ -244,16 +244,14 @@ with tab_cal:
             filtered_events = [e for e in events if e.get("category") == filter_cate]
             
         if not filtered_events:
-            st.info("目前沒有相關的行程記錄。")
+            st.info("目前無任何行程記錄。")
         else:
-            # 按日期進行排序
             sorted_events = sorted(filtered_events, key=lambda x: x["date"])
             for idx, ev in enumerate(sorted_events):
                 with st.expander(f"📌 {ev['date']} - {ev['title']} ({ev.get('category', '一般')})"):
                     st.write(f"**詳細備註**：{ev.get('description') if ev.get('description') else '無'}")
                     st.caption(f"建立者：{ev.get('creator', '未知')}")
                     
-                    # 判斷權限（建立者或管理員可刪除）
                     if st.session_state.logged_in and (st.session_state.user_email == ev.get('creator') or st.session_state.user_email == ADMIN_EMAIL):
                         if st.button("🗑️ 刪除此行程", key=f"del_event_{idx}"):
                             events.remove(ev)
@@ -266,15 +264,13 @@ with tab_cal:
 # ------------------------------------------------------------------------------
 with tab_pdf:
     st.header("📄 PDF 救星工具箱")
-    
     pdf_action = st.radio(
-        "選擇要執行的 PDF 操作：",
+        "選擇要執行的操作：",
         ["🔓 PDF 解密與密碼移除", "🧩 多檔 PDF 快速合併", "📊 PDF 內文與表格轉 Excel"],
         horizontal=True
     )
     st.divider()
 
-    # 1. 解密
     if pdf_action == "🔓 PDF 解密與密碼移除":
         st.subheader("解密保護的 PDF 檔案")
         up_pdf = st.file_uploader("上傳密碼保護的 PDF 檔案", type=["pdf"], key="unlock_pdf_input")
@@ -292,37 +288,32 @@ with tab_pdf:
                     
                     out_buf = io.BytesIO()
                     writer.write(out_buf)
-                    st.success("🎉 解密成功！您可以直接下載無密碼的 PDF 檔：")
+                    st.success("🎉 解密成功！")
                     st.download_button("📥 下載已解密 PDF", out_buf.getvalue(), file_name="unlocked_document.pdf", mime="application/pdf")
                 except Exception as e:
-                    st.error(f"解密失敗，請檢查密碼是否正確。系統回報：{e}")
+                    st.error(f"解密失敗，請檢查密碼是否正確：{e}")
 
-    # 2. 合併
     elif pdf_action == "🧩 多檔 PDF 快速合併":
-        st.subheader("合併多份 PDF 檔為單一文件")
-        pdf_files = st.file_uploader("請選擇並上傳多個 PDF 檔案", type=["pdf"], accept_multiple_files=True, key="merge_pdf_input")
+        st.subheader("合併多份 PDF 為單一檔案")
+        pdf_files = st.file_uploader("選擇多個 PDF 檔案", type=["pdf"], accept_multiple_files=True, key="merge_pdf_input")
         
-        if pdf_files:
-            st.write(f"已選擇 {len(pdf_files)} 個檔案。點擊下方按鈕開始順序合併：")
-            if st.button("🧩 執行合併"):
-                merger = pypdf.PdfWriter()
-                for p_file in pdf_files:
-                    merger.append(p_file)
-                merged_buf = io.BytesIO()
-                merger.write(merged_buf)
-                st.success("🎉 PDF 合併成功！")
-                st.download_button("📥 下載合併後的 PDF", merged_buf.getvalue(), file_name="merged_output.pdf", mime="application/pdf")
+        if pdf_files and st.button("🧩 執行合併"):
+            merger = pypdf.PdfWriter()
+            for p_file in pdf_files:
+                merger.append(p_file)
+            merged_buf = io.BytesIO()
+            merger.write(merged_buf)
+            st.success("🎉 PDF 合併成功！")
+            st.download_button("📥 下載合併後的 PDF", merged_buf.getvalue(), file_name="merged_output.pdf", mime="application/pdf")
 
-    # 3. 轉 Excel
     elif pdf_action == "📊 PDF 內文與表格轉 Excel":
-        st.subheader("提取 PDF 文字與表格至 Excel")
-        pdf_excel_file = st.file_uploader("上傳含有數據或內文的 PDF 檔案", type=["pdf"], key="excel_pdf_input")
+        st.subheader("提取 PDF 文字與數據至 Excel")
+        pdf_excel_file = st.file_uploader("上傳含有數據或內文的 PDF", type=["pdf"], key="excel_pdf_input")
         
         if pdf_excel_file and st.button("📊 提取資料並生成 Excel"):
             try:
                 reader = pypdf.PdfReader(pdf_excel_file)
                 data_rows = []
-                
                 for p_idx, page in enumerate(reader.pages):
                     text = page.extract_text()
                     lines = text.split("\n")
@@ -331,13 +322,12 @@ with tab_pdf:
                             data_rows.append({"頁碼": p_idx + 1, "擷取內容": line.strip()})
                             
                 df = pd.DataFrame(data_rows)
-                
                 excel_buf = io.BytesIO()
                 with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
                     df.to_excel(writer, index=False, sheet_name="PDF 提取內容")
                 
                 st.success(f"🎉 成功提取 {len(data_rows)} 筆資料！")
-                st.dataframe(df.head(15), use_container_width=True)
+                st.dataframe(df.head(10), use_container_width=True)
                 st.download_button("📥 下載 Excel 試算表 (.xlsx)", excel_buf.getvalue(), file_name="pdf_data_extracted.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except Exception as e:
                 st.error(f"提取過程中發生錯誤：{e}")
@@ -348,7 +338,6 @@ with tab_pdf:
 # ------------------------------------------------------------------------------
 with tab_img:
     st.header("✂️ 圖像編修與智能去背工具")
-    
     img_file = st.file_uploader("上傳圖片檔案 (JPG / PNG)", type=["jpg", "jpeg", "png"], key="img_proc_input")
     
     if img_file:
@@ -361,21 +350,18 @@ with tab_img:
         with c_right:
             proc_mode = st.selectbox(
                 "選擇處理模式",
-                ["純白/淺色背景去背 (轉透明 PNG)", "調整尺寸與旋轉", "亮度/對比度/色彩微調", "黑白灰階濾鏡"]
+                ["純白/淺色背景去背 (轉透明 PNG)", "調整尺寸與旋轉", "亮度/對比度微調", "黑白灰階濾鏡"]
             )
             
-            # 去背模式
             if proc_mode == "純白/淺色背景去背 (轉透明 PNG)":
-                tolerance = st.slider("背景色閥值 (容差度高適用於非純白背景)", 0, 100, 30)
+                tolerance = st.slider("背景色閥值 (容差度高適用於淺色背景)", 0, 100, 30)
                 if st.button("✂️ 執行去背"):
                     img_rgba = ori_img.convert("RGBA")
                     datas = img_rgba.getdata()
                     new_datas = []
-                    
                     for item in datas:
-                        # 檢查紅綠藍三色是否皆高於容差閥值
                         if item[0] >= (255 - tolerance) and item[1] >= (255 - tolerance) and item[2] >= (255 - tolerance):
-                            new_datas.append((255, 255, 255, 0)) # 轉為透明
+                            new_datas.append((255, 255, 255, 0))
                         else:
                             new_datas.append(item)
                             
@@ -385,7 +371,6 @@ with tab_img:
                     st.image(img_rgba, caption="去背完成結果", use_container_width=True)
                     st.download_button("📥 下載透明背景 PNG", out_p.getvalue(), file_name="nobg_image.png", mime="image/png")
 
-            # 調整尺寸
             elif proc_mode == "調整尺寸與旋轉":
                 w = st.number_input("新寬度 (px)", value=ori_img.width, step=10)
                 h = st.number_input("新高度 (px)", value=ori_img.height, step=10)
@@ -398,11 +383,9 @@ with tab_img:
                     st.image(resized_img, caption="修改後結果", use_container_width=True)
                     st.download_button("📥 下載圖片", out_p.getvalue(), file_name="resized_image.png", mime="image/png")
 
-            # 調色微調
-            elif proc_mode == "亮度/對比度/色彩微調":
+            elif proc_mode == "亮度/對比度微調":
                 b_val = st.slider("亮度", 0.1, 2.0, 1.0)
                 c_val = st.slider("對比度", 0.1, 2.0, 1.0)
-                
                 if st.button("✨ 應用效果"):
                     enh_b = ImageEnhance.Brightness(ori_img).enhance(b_val)
                     enh_c = ImageEnhance.Contrast(enh_b).enhance(c_val)
@@ -411,7 +394,6 @@ with tab_img:
                     st.image(enh_c, caption="調色完成預覽", use_container_width=True)
                     st.download_button("📥 下載調色圖片", out_p.getvalue(), file_name="enhanced_image.png", mime="image/png")
 
-            # 灰階濾鏡
             elif proc_mode == "黑白灰階濾鏡":
                 if st.button("🎨 轉為黑白"):
                     gray_img = ImageOps.grayscale(ori_img)
@@ -426,13 +408,10 @@ with tab_img:
 # ------------------------------------------------------------------------------
 with tab_summary:
     st.header("📝 萬用文本總結與防雷條款助理")
-    
-    input_text = st.text_area("請貼上欲分析長文章、新聞、合約條款、服務細則或電子郵件內容：", height=220)
+    input_text = st.text_area("請貼上欲分析長文章、新聞、合約條款或說明書內容：", height=220)
     
     if input_text and st.button("🔍 執行文本總結與關鍵風險分析"):
         col_s1, col_s2 = st.columns(2)
-        
-        # 斷句處理
         sentences = [s.strip() for s in re.split(r'[。！!？?\n]', input_text) if len(s.strip()) > 3]
         
         with col_s1:
@@ -446,26 +425,19 @@ with tab_summary:
 
         with col_s2:
             st.subheader("⚠️ 陷阱與風險關鍵字掃描")
-            
-            # 定義常見合約/陷阱關鍵字庫
-            risk_keywords = [
-                "違約金", "無條件", "不得異議", "自動續約", "放棄", "負擔費用", 
-                "損害賠償", "終止條款", "免責", "利息", "逾期", "定金不退", "爭議處理"
-            ]
-            
+            risk_keywords = ["違約金", "無條件", "不得異議", "自動續約", "放棄", "負擔費用", "損害賠償", "終止條款", "免責", "利息", "逾期"]
             found_keywords = [kw for kw in risk_keywords if kw in input_text]
             
             if found_keywords:
-                st.error(f"🚨 注意！文中偵測到以下潛在風險關鍵字：**{', '.join(found_keywords)}**")
+                st.error(f"🚨 注意！偵測到風險關鍵字：**{', '.join(found_keywords)}**")
                 st.markdown("---")
-                st.markdown("**含有風險關鍵字之相關文句：**")
                 for s in sentences:
                     for rkw in found_keywords:
                         if rkw in s:
                             st.warning(f"🚩 `{s}`")
                             break
             else:
-                st.success("✅ 未在文章中發現常見的敏感風險與陷阱關鍵字。")
+                st.success("✅ 未在文章中發現常見的風險與陷阱關鍵字。")
 
 
 # ------------------------------------------------------------------------------
@@ -473,24 +445,17 @@ with tab_summary:
 # ------------------------------------------------------------------------------
 with tab_ig:
     st.header("📱 社群 IG / Threads 一鍵九宮格與連圖裁切")
-    
     social_file = st.file_uploader("上傳要用於排版的原始照片", type=["jpg", "jpeg", "png"], key="social_crop_input")
     
     if social_file:
         s_img = Image.open(social_file)
-        
-        crop_type = st.radio(
-            "選擇裁切模式",
-            ["3x3 九宮格 (適用於 Instagram 牆面拼圖)", "1x3 橫向連圖 (適用於 Threads / IG 輪播貼文)"],
-            horizontal=True
-        )
+        crop_type = st.radio("選擇裁切模式", ["3x3 九宮格 (IG 牆面拼圖)", "1x3 橫向連圖 (Threads/IG 輪播)"], horizontal=True)
         
         if st.button("✂️ 執行切圖排版"):
             sw, sh = s_img.size
             crop_results = []
             
-            if crop_type == "3x3 九宮格 (適用於 Instagram 牆面拼圖)":
-                # 裁切為中心正方形
+            if crop_type == "3x3 九宮格 (IG 牆面拼圖)":
                 min_edge = min(sw, sh)
                 l = (sw - min_edge) / 2
                 t = (sh - min_edge) / 2
@@ -502,7 +467,7 @@ with tab_ig:
                         box = (c * step, r * step, (c + 1) * step, (r + 1) * step)
                         crop_results.append((f"ig_grid_{r+1}_{c+1}.png", sq_img.crop(box)))
                         
-            elif crop_type == "1x3 橫向連图 (適用於 Threads / IG 輪播貼文)":
+            elif crop_type == "1x3 橫向連圖 (Threads/IG 輪播)":
                 step = sw // 3
                 for c in range(3):
                     box = (c * step, 0, (c + 1) * step, sh)
@@ -510,7 +475,6 @@ with tab_ig:
 
             st.success(f"🎉 成功切分出 {len(crop_results)} 張圖片！")
             
-            # 打包成 ZIP
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w") as zf:
                 for img_name, img_obj in crop_results:
@@ -520,9 +484,7 @@ with tab_ig:
 
             st.download_button("📦 一鍵下載全部圖片 (ZIP 打包檔)", zip_buf.getvalue(), file_name="social_crops.zip", mime="application/zip")
             
-            # 展現切圖結果預覽
             st.divider()
-            st.subheader("🖼️ 切割結果預覽")
             preview_cols = st.columns(3)
             for i, (fname, p_img) in enumerate(crop_results):
                 with preview_cols[i % 3]:
