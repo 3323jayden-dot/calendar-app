@@ -1,4 +1,67 @@
 import streamlit as st
+from datetime import datetime, timedelta
+from streamlit_cookies_controller import CookieController
+
+# 1. 初始化 Cookie 控制器
+cookies = CookieController()
+
+# 2. 初始化 session_state
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "user_email" not in st.session_state:
+    st.session_state.user_email = ""
+
+# 3. 自動讀取 Cookie 進行自動登入
+cookie_user = cookies.get("remember_user_email")
+if cookie_user and not st.session_state.logged_in:
+    st.session_state.logged_in = True
+    st.session_state.user_email = cookie_user
+    st.toast(f"👋 歡迎回來，{cookie_user}！（已自動登入）")
+
+# ------------------------------------------------------------------------------
+# 4. 側邊欄登入邏輯 (修改登入與登出部分)
+# ------------------------------------------------------------------------------
+with st.sidebar:
+    st.title("👤 帳號管理")
+    
+    if st.session_state.logged_in:
+        st.success(f"目前登入：\n**{st.session_state.user_email}**")
+        
+        # 登出按鈕：除了清除 session_state，也要一併清除 Cookie
+        if st.button("🚪 登出系統", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.user_email = ""
+            cookies.remove("remember_user_email")  # 清除 Cookie
+            st.rerun()
+            
+    else:
+        st.subheader("🔑 帳號登入")
+        input_email = st.text_input("請輸入 Email 帳號")
+        
+        # 加入「保持登入」勾選框
+        remember_me = st.checkbox("記住我（30 天內免重新登入）", value=True)
+        
+        if st.button("登入", use_container_width=True):
+            if input_email.strip():
+                st.session_state.logged_in = True
+                st.session_state.user_email = input_email.strip()
+                
+                # 如果勾選記住我，寫入 Cookie（有效期限 30 天）
+                if remember_me:
+                    expires = datetime.now() + timedelta(days=30)
+                    cookies.set("remember_user_email", input_email.strip(), expires=expires)
+                
+                st.success("登入成功！")
+                st.rerun()
+            else:
+                st.error("請輸入有效的 Email！")
+
+
+
+
+
+
+import streamlit as st
 import json
 import os
 import io
