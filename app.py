@@ -9,6 +9,24 @@ import calendar
 from PIL import Image, ImageEnhance, ImageOps
 import pandas as pd
 import pypdf
+# ------------------------------------------------------------------------------
+# 資料載入與儲存輔助 (請確認檔名與變數名稱)
+# ------------------------------------------------------------------------------
+CALENDARS_FILE = "calendars.json" # 儲存共享行事曆與成員關係
+
+# 載入行事曆清單 (若檔案不存在則預設為空清單)
+calendars_data = load_data(CALENDARS_FILE) if 'load_data' in globals() else []
+
+def get_user_calendars(user_email):
+    """取得該使用者擁有的共享行事曆清單"""
+    if not user_email:
+        return []
+    user_cals = []
+    for c in calendars_data:
+        # 如果是建立者或是成員之一
+        if c.get("owner") == user_email or user_email in c.get("members", []):
+            user_cals.append(c)
+    return user_cals
 
 # ==============================================================================
 # 0. 基本頁面配置與檔案設定
