@@ -62,7 +62,11 @@ url_token = query_params.get("token")
 current_user_email = None
 
 if url_user and url_token and url_user in users:
-    expected_token = generate_token(url_user, users[url_user]["password"])
+    # 安全取得密碼（自動相容舊版字串格式與新版字典格式）
+    u_data = users[url_user]
+    user_pwd = u_data["password"] if isinstance(u_data, dict) else u_data
+    
+    expected_token = generate_token(url_user, user_pwd)
     if url_token == expected_token:
         current_user_email = url_user
 
