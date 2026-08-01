@@ -198,7 +198,7 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格（完美粉紅標籤卡片 + 點擊對話框）
+# TAB 1: 📅 視覺化日曆網格（原生 Markdown 標籤版，100% 穩定不空白）
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -208,7 +208,7 @@ with tab_cal:
 
     today = date.today()
 
-    # 1. 彈窗對話框
+    # 1. 行程管理對話框 (st.dialog)
     @st.dialog("📅 行程安排與管理", width="large")
     def show_event_dialog(selected_date_str):
         st.subheader(f"📌 {selected_date_str} 的行程")
@@ -257,12 +257,6 @@ with tab_cal:
         else:
             st.info("🔒 請於側邊欄登入帳號後進行行程新增。")
 
-    # 檢查是否有從自訂月曆點擊的日期
-    if "clicked_date" in st.session_state and st.session_state["clicked_date"]:
-        target_date = st.session_state["clicked_date"]
-        st.session_state["clicked_date"] = None
-        show_event_dialog(target_date)
-
     # 2. 年月選擇器
     c_y, c_m, _ = st.columns([1, 1, 2])
     with c_y:
@@ -272,32 +266,32 @@ with tab_cal:
 
     st.markdown("---")
 
-    # 3. 自訂 CSS（修正 Streamlit Button 呈現完美的文字標籤）
+    # 3. CSS 微調：讓按鈕長得像圓角卡片，並靠左對齊文字
     st.markdown("""
     <style>
-    /* 重塑 Streamlit 原生按鈕為高質感圓角卡片 */
     div[data-testid="column"] button {
-        height: 78px !important;
-        padding: 6px 8px !important;
-        border-radius: 16px !important;
-        border: 1px solid #f0f0f0 !important;
+        height: 75px !important;
+        padding: 6px 10px !important;
+        border-radius: 14px !important;
+        border: 1px solid #e2e8f0 !important;
         background-color: #ffffff !important;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.02) !important;
-        transition: all 0.2s ease !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
     }
     div[data-testid="column"] button:hover {
-        border-color: #ffcdd2 !important;
-        background-color: #fff9f9 !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05) !important;
+        border-color: #cbd5e0 !important;
+        background-color: #f7fafc !important;
     }
-    div[data-testid="column"] button div p {
-        display: none !important; /* 隱藏原生純文字 */
+    div[data-testid="column"] button p {
+        text-align: left !important;
+        font-size: 14px !important;
+        font-weight: bold !important;
+        color: #2d3748 !important;
+        line-height: 1.4 !important;
     }
     </style>
     """, unsafe_allow_html=True)
     
-    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽")
+    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽（點擊日期查看行程）")
     
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
@@ -305,7 +299,7 @@ with tab_cal:
     # 渲染星期標頭
     cols_head = st.columns(7)
     for idx, day_name in enumerate(weekdays):
-        cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#777; margin-bottom:10px;'>星期{day_name}</div>", unsafe_allow_html=True)
+        cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#718096; margin-bottom:8px;'>星期{day_name}</div>", unsafe_allow_html=True)
         
     # 渲染日曆格子
     for week in cal:
@@ -317,36 +311,17 @@ with tab_cal:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
                 day_events = [e for e in events if e.get("date") == day_str]
                 
-                # 建立淡粉紅膠囊標籤 HTML
-                tag_html = ""
+                # 組裝按鈕文字：上面是數字，下面是淡粉紅背景標籤
+                btn_label = f"{day}"
+                
                 if day_events:
                     first_title = day_events[0]['title']
                     short_title = first_title[:5] + "..." if len(first_title) > 5 else first_title
-                    tag_html = f'<div style="background-color:#ffebee; color:#e53935; font-size:12px; font-weight:600; padding:2px 8px; border-radius:10px; margin-top:6px; display:inline-block; max-width:95%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{short_title}</div>'
+                    # 運用 Streamlit 原生 `:red-background[...]` 語法繪製粉紅膠囊標籤
+                    btn_label += f"\n\n:red-background[{short_title}]"
                 
-                # 卡片整體 HTML 內容
-                card_html = f'''
-                <div style="text-align:left; width:100%;">
-                    <div style="font-size:16px; font-weight:800; color:#222; line-height:1.2;">{day}</div>
-                    {tag_html}
-                </div>
-                '''
-                
-                # 渲染按鈕並注入 HTML 內容
-                with cols[idx]:
-                    btn_clicked = st.button(" ", key=f"btn_cal_{day_str}", use_container_width=True)
-                    # 利用 markdown 注入卡片內容
-                    st.markdown(f"""
-                    <script>
-                        var btn = window.parent.document.querySelector('button[key="btn_cal_{day_str}"]');
-                        if (btn) {{
-                            btn.innerHTML = `{card_html}`;
-                        }}
-                    </script>
-                    """, unsafe_allow_html=True)
-                    
-                    if btn_clicked:
-                        show_event_dialog(day_str)
+                if cols[idx].button(btn_label, key=f"btn_cal_{day_str}", use_container_width=True):
+                    show_event_dialog(day_str)
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
