@@ -9,7 +9,6 @@ import urllib.parse
 import requests
 
 # ----------------- 0. 系統超級管理員設定 -----------------
-# 💡 請將此處改為您的管理員 Email 帳號
 ADMIN_EMAIL = "3323jayden@gmail.com"
 
 # ----------------- 網頁基本設定 & GitHub Favicon -----------------
@@ -101,9 +100,6 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def generate_token(email, salt):
-    return hashlib.sha256(f"{email}_{salt}_calendar_secret".encode()).hexdigest()[:16]
-
 def generate_digit_code(existing_keys):
     while True:
         code = str(random.randint(100000, 999999))
@@ -113,7 +109,7 @@ def generate_digit_code(existing_keys):
 users = load_json(USER_FILE, {})
 all_calendars = load_json(CALENDARS_FILE, {})
 
-# ----------------- 1. Google OAuth 安全讀取 -----------------
+# ----------------- Google OAuth 安全讀取 -----------------
 query_params = st.query_params
 
 google_secrets = st.secrets.get("google", {})
@@ -157,8 +153,11 @@ def get_google_user_info(auth_code):
             return user_info_res.json()
     return None
 
-current_user_email = None
+# Session State 登入狀態管理
+if "logged_in_user" not in st.session_state:
+    st.session_state.logged_in_user = None
 
+# 處理 OAuth 回傳
 if "code" in query_params:
     auth_code = query_params["code"]
     user_info = get_google_user_info(auth_code)
@@ -178,28 +177,15 @@ if "code" in query_params:
             if isinstance(users[email], str):
                 users[email] = {"name": email.split("@")[0], "password": users[email], "categories": DEFAULT_CATEGORIES.copy()}
             users[email]["picture"] = picture
-        save_json(USER_FILE, users)
         
-        token = generate_token(email, "google_login")
+        save_json(USER_FILE, users)
+        st.session_state.logged_in_user = email
         st.query_params.clear()
-        st.query_params["user"] = email
-        st.query_params["token"] = token
         st.rerun()
 
-url_user = query_params.get("user")
-url_token = query_params.get("token")
+current_user_email = st.session_state.logged_in_user
 
-if url_user and url_token and url_user in users:
-    u_data = users[url_user]
-    user_pwd = u_data.get("password", "") if isinstance(u_data, dict) else u_data
-    
-    expected_token_normal = generate_token(url_user, user_pwd)
-    expected_token_google = generate_token(url_user, "google_login")
-    
-    if url_token in (expected_token_normal, expected_token_google):
-        current_user_email = url_user
-
-# ----------------- 2. 未登入介面 -----------------
+# ----------------- 未登入介面 -----------------
 if not current_user_email:
     st.title("🗓️ 共享線上行事曆")
     st.caption("請登入您的帳號以使用完整功能。")
@@ -215,7 +201,7 @@ if not current_user_email:
                 text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
             ">
                 <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" style="width:18px; height:18px; margin-right:10px;">
-                使用 Google 帳號快速登入 / 註冊<<目前開發中>>
+                使用 Google 帳號快速登入 / 註冊
             </a>
         </div>
         """
@@ -229,14 +215,12 @@ if not current_user_email:
             email_in = st.text_input("Email").strip()
             pass_in = st.text_input("密碼", type="password")
             
-            if st.form_submit_button("登入並保持登入", use_container_width=True):
+            if st.form_submit_button("登入", use_container_width=True):
                 u_data = users.get(email_in)
                 stored_pwd = u_data.get("password") if isinstance(u_data, dict) else u_data
                 
                 if u_data and stored_pwd == pass_in:
-                    token = generate_token(email_in, pass_in)
-                    st.query_params["user"] = email_in
-                    st.query_params["token"] = token
+                    st.session_state.logged_in_user = email_in
                     st.success("登入成功！")
                     st.rerun()
                 else:
@@ -262,14 +246,12 @@ if not current_user_email:
                         "categories": DEFAULT_CATEGORIES.copy()
                     }
                     save_json(USER_FILE, users)
-                    token = generate_token(new_email, new_pass)
-                    st.query_params["user"] = new_email
-                    st.query_params["token"] = token
+                    st.session_state.logged_in_user = new_email
                     st.success("註冊成功！已自動為您登入。")
                     st.rerun()
     st.stop()
 
-# ----------------- 3. 已登入：初始化資料 -----------------
+# ----------------- 已登入：初始化資料 -----------------
 raw_user_data = users[current_user_email]
 if not isinstance(raw_user_data, dict):
     users[current_user_email] = {
@@ -297,37 +279,32 @@ user_accessible_cals = {
     if current_user_email in cdata.get("members", [])
 }
 
-# ----------------- 4. 左側邊欄 (Sidebar) -----------------
+# ----------------- 左側邊欄 (Sidebar) -----------------
 with st.sidebar:
     user_pic = user_data.get("picture", "")
     if user_pic:
         st.image(user_pic, width=50)
     
-    # 若為管理員顯示專屬標籤
     admin_badge = " 👑 (系統管理員)" if current_user_email == ADMIN_EMAIL else ""
     st.write(f"👤 **{user_data.get('name', current_user_email)}**{admin_badge}")
     st.caption(current_user_email)
     
     if st.button("🚪 登出系統", use_container_width=True):
+        st.session_state.logged_in_user = None
         st.query_params.clear()
         st.rerun()
         
     st.divider()
 
-    # 👑 超級管理員專屬後台區塊
+    # 超級管理員專屬後台
     if current_user_email == ADMIN_EMAIL:
         with st.expander("🛡️ 系統後台管理 (Admin Only)"):
             st.warning("您是最高權限管理員，可編輯或管理所有人。")
-            
             target_user = st.selectbox("選擇要管理的帳號：", list(users.keys()), key="admin_user_select")
             if target_user:
                 t_data = users[target_user]
-                if isinstance(t_data, dict):
-                    t_name = t_data.get("name", "")
-                    t_pwd = t_data.get("password", "")
-                else:
-                    t_name = target_user.split("@")[0]
-                    t_pwd = t_data
+                t_name = t_data.get("name", "") if isinstance(t_data, dict) else target_user.split("@")[0]
+                t_pwd = t_data.get("password", "") if isinstance(t_data, dict) else t_data
                 
                 edit_name = st.text_input("修改暱稱", value=t_name, key="admin_edit_name")
                 edit_pwd = st.text_input("修改密碼", value=t_pwd, key="admin_edit_pwd")
@@ -351,16 +328,12 @@ with st.sidebar:
                 with col_del_u:
                     if target_user != ADMIN_EMAIL:
                         if st.button("🗑️ 刪除帳號", key="admin_del_btn", use_container_width=True):
-                            # 1. 刪除使用者
                             del users[target_user]
                             save_json(USER_FILE, users)
-                            
-                            # 2. 清理個人日曆
                             p_id = f"personal_{target_user}"
                             if p_id in all_calendars:
                                 del all_calendars[p_id]
                                 save_json(CALENDARS_FILE, all_calendars)
-                                
                             st.success(f"已刪除帳號 {target_user}")
                             st.rerun()
                     else:
@@ -368,7 +341,7 @@ with st.sidebar:
 
         st.divider()
 
-    # 區塊 1: 帳戶偏好設定
+    # 帳戶偏好設定
     with st.expander("⚙️ 帳戶偏好設定"):
         new_nickname = st.text_input("更改顯示暱稱", value=user_data.get("name", ""))
         if st.button("儲存暱稱"):
@@ -378,7 +351,7 @@ with st.sidebar:
                 st.success("暱稱已成功更新！")
                 st.rerun()
 
-    # 區塊 2: 跨日細節規劃
+    # 跨日細節規劃
     with st.expander("📝 跨日細節規劃 (幾號至幾號)"):
         st.caption("選取區間快速新增連續行程：")
         date_range = st.date_input(
@@ -417,9 +390,8 @@ with st.sidebar:
                 st.success(f"已新增 {start_d} 至 {end_d} 行程！")
                 st.rerun()
 
-    # 區塊 3: 客製化行程類別
+    # 客製化行程類別
     with st.expander("🎨 客製化行程類別"):
-        st.markdown("**新增/修改類別：**")
         cat_name = st.text_input("類別名稱", placeholder="例：加班 / 聚會").strip()
         cat_icon = st.text_input("Emoji 圖示", value="📌").strip()
         cat_color = st.color_picker("代表顏色", "#1E88E5")
@@ -435,7 +407,7 @@ with st.sidebar:
                 st.success(f"已新增分類：{cat_name}")
                 st.rerun()
 
-    # 區塊 4: 日曆切換、修改名稱與共用 / 刪除
+    # 日曆切換與管理
     st.divider()
     st.subheader("📅 日曆切換與管理")
     selected_cal_id = st.selectbox(
@@ -461,7 +433,6 @@ with st.sidebar:
         
         if not selected_cal_id.startswith("personal_"):
             st.markdown("---")
-            st.markdown("<span style='color:red;'>⚠️ 刪除區域</span>", unsafe_allow_html=True)
             if st.button("🗑️ 刪除此共享日曆", use_container_width=True):
                 del all_calendars[selected_cal_id]
                 save_json(CALENDARS_FILE, all_calendars)
@@ -498,7 +469,7 @@ with st.sidebar:
 current_cal_data = all_calendars[selected_cal_id]
 current_events = current_cal_data["events"]
 
-# ----------------- 5. 點擊日期的懸浮彈窗 (含 Web Notification) -----------------
+# ----------------- 點擊日期的懸浮彈窗 -----------------
 @st.dialog("📅 管理當日行程")
 def manage_events_dialog(date_str):
     st.markdown(f"### **{date_str}**")
@@ -572,7 +543,7 @@ def manage_events_dialog(date_str):
                     st.query_params.pop("selected_date", None)
                     st.rerun()
 
-# ----------------- 6. 主日曆導覽列 -----------------
+# ----------------- 主日曆導覽列 -----------------
 today = datetime.date.today()
 
 if "current_year" not in st.session_state:
@@ -641,10 +612,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
-link_prefix = f"?{base_url_params}&" if base_url_params else "?"
-
-# ----------------- 7. 繪製 HTML 月曆 -----------------
+# ----------------- 繪製 HTML 月曆 -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
 
@@ -740,7 +708,7 @@ for week in month_days:
             if len(day_events) > 2:
                 tags_html += f"<div style='font-size:8px; color:#888;'>+{len(day_events)-2}</div>"
                 
-            link_url = f"{link_prefix}selected_date={date_key}"
+            link_url = f"?selected_date={date_key}"
             html_code += f"<td><a href='{link_url}' target='_self' class='cal-cell-link'>{day_num_html}{tags_html}</a></td>"
     html_code += "</tr>"
 
@@ -751,7 +719,7 @@ selected_date_param = query_params.get("selected_date")
 if selected_date_param:
     manage_events_dialog(selected_date_param)
 
-# ----------------- 8. 即將到來的行程 -----------------
+# ----------------- 即將到來的行程 -----------------
 st.divider()
 st.subheader("🔮 即將到來的行程")
 upcoming = []
@@ -777,14 +745,15 @@ if upcoming:
         )
 else:
     st.info("近期尚無行程規劃。")
-# ----------------- 9. 頁尾客服資訊 (小字顯示) -----------------
+
+# ----------------- 頁尾客服資訊 -----------------
 st.divider()
 
 footer_html = """
 <div style="text-align: center; color: #888888; font-size: 12px; margin-top: 20px; line-height: 1.6;">
     <p style="margin: 0;">💬 <b>客服與技術支援</b></p>
     <p style="margin: 2px 0;">服務時間：週一至週五 09:00 - 18:00</p>
-    <p style="margin: 2px 0;">客服信箱：<a href="mailto:3323jayden@gmail.com" style="color: #007aff;">3323jayden@gmail.com</a> ：</p>
+    <p style="margin: 2px 0;">客服信箱：<a href="mailto:3323jayden@gmail.com" style="color: #007aff;">3323jayden@gmail.com</a></p>
     <p style="margin: 6px 0 0 0; font-size: 10px; color: #aaa;">© 2026 共享線上行事曆系統 All Rights Reserved.</p>
 </div>
 """
