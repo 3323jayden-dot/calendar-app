@@ -3,7 +3,7 @@ import datetime
 import calendar
 import json
 import os
-import uuid
+import random
 import hashlib
 import urllib.parse
 import requests
@@ -19,11 +19,9 @@ st.set_page_config(
 pwa_html = """
 <script>
 (function() {
-    // 自動取得當前完整的網址參數 (包含 ?user=xxx&token=yyy)
     const currentSearch = window.parent.location.search || window.location.search;
     const startUrl = '/' + currentSearch;
 
-    // 1. 動態建立包含使用者資訊的 manifest.json
     const manifest = {
       "name": "我的雲端行事曆",
       "short_name": "行事曆",
@@ -49,7 +47,6 @@ pwa_html = """
     const blob = new Blob([stringManifest], {type: 'application/json'});
     const manifestURL = URL.createObjectURL(blob);
     
-    // 移除舊的 manifest (如果有)
     const oldLink = document.head.querySelector('link[rel="manifest"]');
     if (oldLink) oldLink.remove();
 
@@ -58,7 +55,6 @@ pwa_html = """
     linkTag.href = manifestURL;
     document.head.appendChild(linkTag);
 
-    // 2. 註冊 Service Worker
     if ('serviceWorker' in navigator) {
       const swCode = `
         self.addEventListener('install', (e) => self.skipWaiting());
@@ -103,6 +99,13 @@ def save_json(filepath, data):
 
 def generate_token(email, salt):
     return hashlib.sha256(f"{email}_{salt}_calendar_secret".encode()).hexdigest()[:16]
+
+# 生成唯一的 6 位數字邀請碼
+def generate_digit_code(existing_keys):
+    while True:
+        code = str(random.randint(100000, 999999))
+        if code not in existing_keys:
+            return code
 
 users = load_json(USER_FILE, {})
 all_calendars = load_json(CALENDARS_FILE, {})
@@ -205,18 +208,10 @@ if not current_user_email:
         google_btn_html = f"""
         <div style="text-align: center; margin: 15px 0;">
             <a href="{auth_url}" target="_self" style="
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                background-color: #ffffff;
-                color: #757575;
-                border: 1px solid #dadce0;
-                border-radius: 6px;
-                padding: 10px 24px;
-                font-size: 15px;
-                font-weight: 500;
-                text-decoration: none;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                display: inline-flex; align-items: center; justify-content: center;
+                background-color: #ffffff; color: #757575; border: 1px solid #dadce0;
+                border-radius: 6px; padding: 10px 24px; font-size: 15px; font-weight: 500;
+                text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
             ">
                 <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" style="width:18px; height:18px; margin-right:10px;">
                 使用 Google 帳號快速登入 / 註冊<<目前開發中>>
@@ -382,7 +377,7 @@ with st.sidebar:
                 st.success(f"已新增分類：{cat_name}")
                 st.rerun()
 
-    # 區塊 4: 日曆切換、修改名稱與共用
+    # 區塊 4: 日曆切換、修改名稱與共用 / 刪除
     st.divider()
     st.subheader("📅 日曆切換與管理")
     selected_cal_id = st.selectbox(
@@ -391,7 +386,11 @@ with st.sidebar:
         format_func=lambda x: user_accessible_cals[x]
     )
     
-    with st.expander("✏️ 修改目前日曆名稱"):
+    # 顯示當前選取共享日曆的「數字邀請碼」
+    if not selected_cal_id.startswith("personal_"):
+        st.info(f"🔑 本日曆邀請碼：`{selected_cal_id}`")
+    
+    with st.expander("✏️ 修改名稱與設定"):
         curr_cal_name = all_calendars[selected_cal_id].get("name", "")
         new_cal_name_input = st.text_input("新的日曆名稱", value=curr_cal_name, key="edit_cal_name_input")
         if st.button("💾 儲存日曆名稱", use_container_width=True):
@@ -402,22 +401,33 @@ with st.sidebar:
                 st.rerun()
             else:
                 st.error("日曆名稱不能為空白！")
+        
+        # 刪除共享日曆 (保護個人預設日曆不可被刪除)
+        if not selected_cal_id.startswith("personal_"):
+            st.markdown("---")
+            st.markdown("<span style='color:red;'>⚠️ 刪除區域</span>", unsafe_allow_html=True)
+            if st.button("🗑️ 刪除此共享日曆", use_container_width=True):
+                del all_calendars[selected_cal_id]
+                save_json(CALENDARS_FILE, all_calendars)
+                st.success("已成功刪除該共享日曆！")
+                st.rerun()
 
     with st.expander("➕ 建立/加入共用日曆"):
         new_cal_name = st.text_input("建立新共用日曆", placeholder="例：專案討論組")
         if st.button("建立"):
             if new_cal_name.strip():
-                new_id = f"shared_{uuid.uuid4().hex[:8]}"
+                # 生成 6 位純數字邀請碼
+                new_id = generate_digit_code(all_calendars.keys())
                 all_calendars[new_id] = {
                     "name": f"👥 {new_cal_name.strip()}",
                     "members": [current_user_email],
                     "events": {}
                 }
                 save_json(CALENDARS_FILE, all_calendars)
-                st.success("建立成功！")
+                st.success(f"建立成功！邀請碼為：{new_id}")
                 st.rerun()
                 
-        invite_code = st.text_input("輸入邀請碼加入").strip()
+        invite_code = st.text_input("輸入 6 位數字邀請碼加入").strip()
         if st.button("加入"):
             if invite_code in all_calendars:
                 if current_user_email not in all_calendars[invite_code]["members"]:
@@ -425,6 +435,10 @@ with st.sidebar:
                     save_json(CALENDARS_FILE, all_calendars)
                     st.success("成功加入！")
                     st.rerun()
+                else:
+                    st.warning("您已經是該日曆的成員！")
+            else:
+                st.error("找不到該邀請碼對應的日曆！")
 
 current_cal_data = all_calendars[selected_cal_id]
 current_events = current_cal_data["events"]
@@ -577,7 +591,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 定義連結字串前綴 (確保點擊日期可以正確帶上帳號資訊)
+# 定義連結字串前綴
 base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
 link_prefix = f"?{base_url_params}&" if base_url_params else "?"
 
