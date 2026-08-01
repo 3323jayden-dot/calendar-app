@@ -166,7 +166,7 @@ if not current_user_email:
                 box-shadow: 0 1px 3px rgba(0,0,0,0.08);
             ">
                 <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" style="width:18px; height:18px; margin-right:10px;">
-                使用 Google 帳號快速登入 / 註冊
+                使用 Google 帳號快速登入 / 註冊<<目前開發中>>
             </a>
         </div>
         """
