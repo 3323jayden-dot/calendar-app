@@ -5,12 +5,19 @@ import json
 import os
 import uuid
 import hashlib
+import random
 
-# 頁面基本設定
-st.set_page_config(page_title="多功能共享線上行事曆", layout="centered")
+# ----------------- 0. 網頁基本設定 & GitHub Favicon -----------------
+st.set_page_config(
+    page_title="多功能共享線上行事曆",
+    page_icon="https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg",
+    layout="centered"
+)
 
-# 7 大類別配色與圖示
-CATEGORY_COLORS = {
+USER_FILE = "users.json"
+CALENDARS_FILE = "shared_calendars.json"
+
+DEFAULT_CATEGORIES = {
     "考試": {"bg": "#FFF0F0", "text": "#E53935", "icon": "📖"},
     "作業": {"bg": "#FFFDE7", "text": "#FB8C00", "icon": "📄"},
     "練習": {"bg": "#E8F5E9", "text": "#2E7D32", "icon": "🏋️"},
@@ -19,9 +26,6 @@ CATEGORY_COLORS = {
     "出題": {"bg": "#E0F7FA", "text": "#0288D1", "icon": "📋"},
     "行政": {"bg": "#F5F5F5", "text": "#616161", "icon": "📁"},
 }
-
-USER_FILE = "users.json"
-CALENDARS_FILE = "shared_calendars.json"
 
 # ----------------- JSON 檔案讀寫工具 -----------------
 def load_json(filepath, default_data):
@@ -38,68 +42,104 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def generate_token(username, password):
-    return hashlib.sha256(f"{username}_{password}_calendar_secret".encode()).hexdigest()[:16]
+def generate_token(email, password):
+    return hashlib.sha256(f"{email}_{password}_calendar_secret".encode()).hexdigest()[:16]
 
-users = load_json(USER_FILE, {"admin": "123456"})
+users = load_json(USER_FILE, {})
+all_calendars = load_json(CALENDARS_FILE, {})
+
+# Session State 初始化
+if "verify_code" not in st.session_state:
+    st.session_state.verify_code = None
+if "pending_email" not in st.session_state:
+    st.session_state.pending_email = None
 
 # ----------------- 1. 網址憑證自動登入機制 -----------------
 query_params = st.query_params
 url_user = query_params.get("user")
 url_token = query_params.get("token")
 
-current_user = None
+current_user_email = None
 
 if url_user and url_token and url_user in users:
-    expected_token = generate_token(url_user, users[url_user])
+    expected_token = generate_token(url_user, users[url_user]["password"])
     if url_token == expected_token:
-        current_user = url_user
+        current_user_email = url_user
 
-if not current_user:
-    st.title("🔐 線上行事曆系統")
-    tab_login, tab_register = st.tabs(["🔑 登入帳號", "📝 註冊新帳號"])
+# ----------------- 2. Email 註冊 / 登入介面 -----------------
+if not current_user_email:
+    st.title("🔐 共享線上行事曆")
+    tab_login, tab_register = st.tabs(["🔑 帳號登入", "✉️ Email 註冊"])
     
     with tab_login:
         with st.form("login_form"):
-            username = st.text_input("帳號").strip().lower()
-            password = st.text_input("密碼", type="password").strip()
+            email_in = st.text_input("電子郵件 (Email)").strip().lower()
+            pass_in = st.text_input("密碼", type="password").strip()
             
             if st.form_submit_button("登入並保持登入", use_container_width=True):
-                if username in users and users[username] == password:
-                    token = generate_token(username, password)
-                    st.query_params["user"] = username
+                if email_in in users and users[email_in]["password"] == pass_in:
+                    token = generate_token(email_in, pass_in)
+                    st.query_params["user"] = email_in
                     st.query_params["token"] = token
-                    st.success(f"登入成功！歡迎，{username}")
+                    st.success(f"登入成功！歡迎，{users[email_in].get('name', email_in)}")
                     st.rerun()
                 else:
-                    st.error("帳號或密碼錯誤！")
+                    st.error("Email 或密碼錯誤！")
                     
     with tab_register:
-        with st.form("register_form"):
-            new_user = st.text_input("新帳號名稱").strip().lower()
-            new_pass = st.text_input("設定密碼", type="password").strip()
-            confirm_pass = st.text_input("確認密碼", type="password").strip()
-            if st.form_submit_button("註冊帳號", use_container_width=True):
-                if not new_user or not new_pass:
-                    st.warning("請填寫完整的帳號與密碼！")
-                elif new_user in users:
-                    st.error("這個帳號名稱已經有人使用了！")
-                elif new_pass != confirm_pass:
-                    st.error("兩次輸入的密碼不一致！")
-                else:
-                    users[new_user] = new_pass
-                    save_json(USER_FILE, users)
-                    st.success("🎉 註冊成功！請切換至登入頁面。")
+        st.markdown("##### 1. 輸入註冊資訊並發送驗證碼")
+        reg_name = st.text_input("您的顯示暱稱 (例如：張小明)").strip()
+        reg_email = st.text_input("您的 Email 帳號").strip().lower()
+        reg_pass = st.text_input("設定密碼", type="password").strip()
+        
+        if st.button("📩 傳送 6 位數驗證碼", use_container_width=True):
+            if not reg_email or "@" not in reg_email:
+                st.warning("請輸入有效的 Email！")
+            elif reg_email in users:
+                st.error("這個 Email 已經註冊過了！")
+            elif not reg_name or not reg_pass:
+                st.warning("請填寫完整的暱稱與密碼！")
+            else:
+                code = str(random.randint(100000, 999999))
+                st.session_state.verify_code = code
+                st.session_state.pending_email = reg_email
+                st.success(f"✅ 驗證碼已發送！(測試模式預覽：驗證碼為 [{code}])")
+                
+        st.divider()
+        st.markdown("##### 2. 輸入驗證碼完成註冊")
+        input_code = st.text_input("請輸入收到 6 位數驗證碼").strip()
+        
+        if st.button("🎉 完成註冊並登入", use_container_width=True):
+            if input_code and input_code == st.session_state.verify_code and reg_email == st.session_state.pending_email:
+                users[reg_email] = {
+                    "name": reg_name,
+                    "password": reg_pass,
+                    "categories": DEFAULT_CATEGORIES.copy()
+                }
+                save_json(USER_FILE, users)
+                st.session_state.verify_code = None
+                st.session_state.pending_email = None
+                
+                # 自動登入
+                token = generate_token(reg_email, reg_pass)
+                st.query_params["user"] = reg_email
+                st.query_params["token"] = token
+                st.success("註冊成功！正在跳轉...")
+                st.rerun()
+            else:
+                st.error("驗證碼不正確或已失效！")
     st.stop()
 
-# ----------------- 2. 日曆切換與管理 -----------------
-all_calendars = load_json(CALENDARS_FILE, {})
+# 當前使用者資料與分類載入
+user_data = users[current_user_email]
+user_categories = user_data.setdefault("categories", DEFAULT_CATEGORIES.copy())
 
-personal_cal_id = f"personal_{current_user}"
+# 個人日曆檢查
+personal_cal_id = f"personal_{current_user_email}"
 if personal_cal_id not in all_calendars:
     all_calendars[personal_cal_id] = {
-        "name": f"🔒 {current_user} 的個人日曆",
-        "members": [current_user],
+        "name": f"🔒 {user_data.get('name', '個人')} 的行事曆",
+        "members": [current_user_email],
         "events": {}
     }
     save_json(CALENDARS_FILE, all_calendars)
@@ -107,80 +147,144 @@ if personal_cal_id not in all_calendars:
 user_accessible_cals = {
     cid: cdata["name"] 
     for cid, cdata in all_calendars.items() 
-    if current_user in cdata.get("members", [])
+    if current_user_email in cdata.get("members", [])
 }
 
+# ----------------- 3. 主選單 (Sidebar) -----------------
 with st.sidebar:
-    st.write(f"👤 當前帳號：**{current_user}**")
-    
+    st.write(f"👤 當前使用者：**{user_data.get('name', current_user_email)}**")
     if st.button("🚪 登出系統", use_container_width=True):
         st.query_params.clear()
         st.rerun()
         
     st.divider()
-    st.subheader("📅 選擇日曆")
     
+    # --- 區塊 1: 帳戶設定 ---
+    with st.expander("⚙️ 帳戶與偏好設定"):
+        new_nickname = st.text_input("更改暱稱", value=user_data.get("name", ""))
+        if st.button("儲存暱稱"):
+            if new_nickname.strip():
+                users[current_user_email]["name"] = new_nickname.strip()
+                save_json(USER_FILE, users)
+                st.success("暱稱已成功更新！")
+                st.rerun()
+                
+        st.caption("變更密碼")
+        new_pwd = st.text_input("新密碼", type="password")
+        if st.button("更新密碼"):
+            if new_pwd.strip():
+                users[current_user_email]["password"] = new_pwd.strip()
+                save_json(USER_FILE, users)
+                token = generate_token(current_user_email, new_pwd.strip())
+                st.query_params["token"] = token
+                st.success("密碼已成功更新！")
+
+    # --- 區塊 2: 跨日細節規劃小日曆 ---
+    with st.expander("📝 跨日細節規劃 (幾號至幾號)"):
+        st.caption("選擇時間區間以快速建立跨日行程：")
+        date_range = st.date_input(
+            "選擇區間",
+            value=(datetime.date.today(), datetime.date.today()),
+            key="side_range_picker"
+        )
+        range_cat = st.selectbox("📌 選擇類別", list(user_categories.keys()), key="side_cat")
+        range_title = st.text_input("行程標題", placeholder="例：暑期實習 / 請假", key="side_title")
+        range_note = st.text_area("詳細規劃/備註", placeholder="補充說明...", key="side_note")
+        
+        selected_cal_for_range = st.selectbox(
+            "添加到哪個日曆：",
+            options=list(user_accessible_cals.keys()),
+            format_func=lambda x: user_accessible_cals[x],
+            key="side_cal_select"
+        )
+        
+        if st.button("✨ 批量新增區間行程", use_container_width=True):
+            if range_title.strip() and isinstance(date_range, tuple) and len(date_range) == 2:
+                start_d, end_d = date_range
+                cal_events = all_calendars[selected_cal_for_range]["events"]
+                curr_d = start_d
+                while curr_d <= end_d:
+                    d_str = curr_d.strftime("%Y-%m-%d")
+                    if d_str not in cal_events:
+                        cal_events[d_str] = []
+                    cal_events[d_str].append({
+                        "category": range_cat,
+                        "title": range_title.strip(),
+                        "note": range_note.strip(),
+                        "author": user_data.get("name", current_user_email)
+                    })
+                    curr_d += datetime.timedelta(days=1)
+                save_json(CALENDARS_FILE, all_calendars)
+                st.success(f"成功新增 {start_d} 至 {end_d} 的行程！")
+                st.rerun()
+
+    # --- 區塊 3: 客製化行程分類 ---
+    with st.expander("🎨 客製化行程分類"):
+        st.markdown("**新增/修改類別：**")
+        cat_name = st.text_input("類別名稱", placeholder="例：加班").strip()
+        cat_icon = st.text_input("Emoji 圖示", value="📌").strip()
+        cat_color = st.color_picker("代表顏色", "#1E88E5")
+        
+        if st.button("➕ 儲存分類"):
+            if cat_name:
+                user_categories[cat_name] = {
+                    "bg": cat_color + "22",
+                    "text": cat_color,
+                    "icon": cat_icon
+                }
+                save_json(USER_FILE, users)
+                st.success(f"已新增/更新分類：{cat_name}")
+                st.rerun()
+                
+        st.caption("已有類別：")
+        st.write(" / ".join(user_categories.keys()))
+
+    # --- 區塊 4: 共用日曆切換與管理 ---
+    st.divider()
+    st.subheader("📅 日曆切換")
     selected_cal_id = st.selectbox(
-        "切換當前檢視的日曆：",
+        "切換檢視的日曆：",
         options=list(user_accessible_cals.keys()),
         format_func=lambda x: user_accessible_cals[x]
     )
     
-    st.divider()
-    st.subheader("➕ 共用日曆管理")
-    
-    with st.expander("建立新的共用日曆"):
-        with st.form("create_cal_form"):
-            new_cal_name = st.text_input("日曆名稱", placeholder="例如：專案小組 / 家族行事曆")
-            if st.form_submit_button("建立"):
-                if new_cal_name.strip():
-                    new_id = f"shared_{uuid.uuid4().hex[:8]}"
-                    all_calendars[new_id] = {
-                        "name": f"👥 {new_cal_name.strip()}",
-                        "members": [current_user],
-                        "events": {}
-                    }
+    with st.expander("➕ 建立/加入共用日曆"):
+        new_cal_name = st.text_input("新建共用日曆名稱", placeholder="例：家族專案")
+        if st.button("建立"):
+            if new_cal_name.strip():
+                new_id = f"shared_{uuid.uuid4().hex[:8]}"
+                all_calendars[new_id] = {
+                    "name": f"👥 {new_cal_name.strip()}",
+                    "members": [current_user_email],
+                    "events": {}
+                }
+                save_json(CALENDARS_FILE, all_calendars)
+                st.success("建立成功！")
+                st.rerun()
+                
+        invite_code = st.text_input("輸入邀請碼加入").strip()
+        if st.button("加入"):
+            if invite_code in all_calendars:
+                if current_user_email not in all_calendars[invite_code]["members"]:
+                    all_calendars[invite_code]["members"].append(current_user_email)
                     save_json(CALENDARS_FILE, all_calendars)
-                    st.success("建立成功！")
+                    st.success("已成功加入！")
                     st.rerun()
 
-    with st.expander("輸入邀請碼加入"):
-        with st.form("join_cal_form"):
-            invite_code = st.text_input("請貼上邀請碼 (ID)").strip()
-            if st.form_submit_button("加入日曆"):
-                if invite_code in all_calendars:
-                    if current_user not in all_calendars[invite_code]["members"]:
-                        all_calendars[invite_code]["members"].append(current_user)
-                        save_json(CALENDARS_FILE, all_calendars)
-                        st.success("成功加入該共用日曆！")
-                        st.rerun()
-                    else:
-                        st.info("你已經在這個日曆中了！")
-                else:
-                    st.error("找不到此邀請碼對應的日曆！")
-
-    current_cal_data = all_calendars[selected_cal_id]
-    if selected_cal_id != personal_cal_id:
-        st.divider()
-        st.subheader("🔑 邀請其他人加入")
-        st.caption("複製下方邀請碼給朋友，對方就能加入此共用日曆：")
-        st.code(selected_cal_id, language="text")
-        st.caption(f"成員：{', '.join(current_cal_data['members'])}")
-
+current_cal_data = all_calendars[selected_cal_id]
 current_events = current_cal_data["events"]
 
-# ----------------- 3. 畫面中間彈出視窗 (Modal / Dialog) -----------------
-@st.dialog("新增/管理事件")
+# ----------------- 4. 點擊日期的中間懸浮彈窗 (Dialog) -----------------
+@st.dialog("📅 管理當日行程")
 def manage_events_dialog(date_str):
-    st.markdown(f"### 📅 **{date_str}**")
-    
-    cat = st.selectbox("📌 選擇類別", list(CATEGORY_COLORS.keys()))
+    st.markdown(f"### **{date_str}**")
+    cat = st.selectbox("📌 選擇類別", list(user_categories.keys()))
     
     with st.form(key=f"modal_add_{date_str}"):
-        title = st.text_input("標題 *", placeholder="例：數學期末考")
+        title = st.text_input("標題 *", placeholder="例：數學考試")
         note = st.text_input("備註 (選填)", placeholder="補充說明...")
         
-        if st.form_submit_button("✨ 新增事件", use_container_width=True):
+        if st.form_submit_button("✨ 新增行程", use_container_width=True):
             if title.strip():
                 if date_str not in current_events:
                     current_events[date_str] = []
@@ -188,20 +292,20 @@ def manage_events_dialog(date_str):
                     "category": cat,
                     "title": title.strip(),
                     "note": note.strip(),
-                    "author": current_user
+                    "author": user_data.get("name", current_user_email)
                 })
                 save_json(CALENDARS_FILE, all_calendars)
                 st.query_params.pop("selected_date", None)
                 st.rerun()
             else:
-                st.error("請輸入事件標題！")
+                st.error("請輸入標題！")
                 
     day_events = current_events.get(date_str, [])
     if day_events:
         st.divider()
-        st.markdown("**📋 當日行程列表：**")
+        st.markdown("**📋 當日行程：**")
         for idx, evt in enumerate(day_events):
-            c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
+            c = user_categories.get(evt["category"], DEFAULT_CATEGORIES.get("行政"))
             col_info, col_del = st.columns([4, 1])
             with col_info:
                 st.markdown(
@@ -218,14 +322,13 @@ def manage_events_dialog(date_str):
                     st.query_params.pop("selected_date", None)
                     st.rerun()
 
-# ----------------- 4. 日曆主介面與抬頭 -----------------
+# ----------------- 5. 主日曆介面與絕不換行導覽 -----------------
 today = datetime.date.today()
 if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
 
-# 處理導覽按鈕點擊事件
 nav_action = query_params.get("nav")
 if nav_action == "prev":
     if st.session_state.current_month == 1:
@@ -251,10 +354,10 @@ elif nav_action == "next":
 
 st.title(f"{current_cal_data['name']}")
 
-# 🛠️ 【絕不換行】HTML Flexbox 超完美導覽列
 base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
 link_prefix = f"?{base_url_params}&" if base_url_params else "?"
 
+# HTML Flexbox 防換行導覽列
 nav_html = f"""
 <style>
 .nav-container {{
@@ -296,7 +399,7 @@ nav_html = f"""
 """
 st.markdown(nav_html, unsafe_allow_html=True)
 
-# ----------------- 5. 繪製可點擊的 HTML 網格月曆 -----------------
+# ----------------- 6. 繪製可點擊 HTML 大月曆 -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
 
@@ -386,23 +489,20 @@ for week in month_days:
             day_events = current_events.get(date_key, [])
             tags_html = ""
             for evt in day_events[:2]:
-                c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
+                c = user_categories.get(evt["category"], DEFAULT_CATEGORIES.get("行政"))
                 tags_html += f"<div class='cal-tag' style='background:{c['bg']}; color:{c['text']};'>{c['icon']}{evt['title']}</div>"
             
             if len(day_events) > 2:
                 tags_html += f"<div style='font-size:8px; color:#888;'>+{len(day_events)-2}</div>"
                 
             link_url = f"{link_prefix}selected_date={date_key}"
-            
             html_code += f"<td><a href='{link_url}' target='_self' class='cal-cell-link'>{day_num_html}{tags_html}</a></td>"
     html_code += "</tr>"
 
 html_code += "</tbody></table>"
-
-# 渲染月曆
 st.markdown(html_code, unsafe_allow_html=True)
 
-# ----------------- 6. 偵測點擊事件並彈出 Dialog -----------------
+# 偵測點擊事件彈窗
 selected_date_param = query_params.get("selected_date")
 if selected_date_param:
     manage_events_dialog(selected_date_param)
@@ -424,7 +524,7 @@ upcoming.sort(key=lambda x: x[0])
 
 if upcoming:
     for evt_date, d_str, evt in upcoming[:5]:
-        c = CATEGORY_COLORS.get(evt["category"], CATEGORY_COLORS["行政"])
+        c = user_categories.get(evt["category"], DEFAULT_CATEGORIES.get("行政"))
         days_left = (evt_date - today).days
         day_text = "今天" if days_left == 0 else f"{days_left} 天後"
         st.markdown(
@@ -432,4 +532,4 @@ if upcoming:
             unsafe_allow_html=True
         )
 else:
-    st.info("此日曆近期尚無規劃行程。")
+    st.info("近期尚無行程規劃。")
