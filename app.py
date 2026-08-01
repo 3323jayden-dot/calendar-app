@@ -55,7 +55,7 @@ query_params = st.query_params
 # 從 Streamlit Secrets 讀取敏感資訊（不寫死在程式碼中）
 google_secrets = st.secrets.get("google", {})
 CLIENT_ID = google_secrets.get("client_id", "")
-CLIENT_SECRET = google_secrets.get("client_secret", "")
+CLIENT_SECRET = google_secrets.get("client_secret")
 REDIRECT_URI = google_secrets.get("redirect_uri", "https://calendar-app-1.streamlit.app/")
 
 def get_google_auth_url():
