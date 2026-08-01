@@ -10,7 +10,7 @@ import requests
 
 # ----------------- 0. 系統超級管理員設定 -----------------
 # 💡 請將此處改為您的管理員 Email 帳號
-ADMIN_EMAIL = "admin"
+ADMIN_EMAIL = "3323jayden@gmail.com"
 
 # ----------------- 網頁基本設定 & GitHub Favicon -----------------
 st.set_page_config(
