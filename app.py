@@ -275,7 +275,7 @@ with st.sidebar:
                 st.rerun()
 
     # 區塊 2: 跨日細節規劃小日曆
-    with st.expander("📝 跨日細節規劃 (幾號至幾號)"):
+    with st.expander("📝 跨日細節規劃"):
         st.caption("選取區間快速新增連續行程：")
         date_range = st.date_input(
             "選擇區間",
