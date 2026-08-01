@@ -333,7 +333,7 @@ with st.sidebar:
         format_func=lambda x: user_accessible_cals[x]
     )
     
-    # 🆕 【功能新增】：修改目前日曆名稱
+    # 修改目前日曆名稱
     with st.expander("✏️ 修改目前日曆名稱"):
         curr_cal_name = all_calendars[selected_cal_id].get("name", "")
         new_cal_name_input = st.text_input("新的日曆名稱", value=curr_cal_name, key="edit_cal_name_input")
@@ -421,7 +421,7 @@ def manage_events_dialog(date_str):
                     st.query_params.pop("selected_date", None)
                     st.rerun()
 
-# ----------------- 6. 主日曆導覽列 (純原生控制，徹底解決跳月問題) -----------------
+# ----------------- 6. 主日曆導覽列 (純原生控制，精準解決跳月問題) -----------------
 today = datetime.date.today()
 
 # 初始化 session state 年月
@@ -432,11 +432,11 @@ if "current_month" not in st.session_state:
 
 st.title(f"{current_cal_data['name']}")
 
-# --- 頂部導覽控制區 ---
+# 頂部導覽控制區
 col_prev, col_year, col_month, col_today, col_next = st.columns([1.2, 2, 2, 1.5, 1.2])
 
 with col_prev:
-    st.write("") # 垂直對齊用
+    st.write("") # 垂直置中
     if st.button("＜ 上個月", key="btn_prev_month", use_container_width=True):
         if st.session_state.current_month == 1:
             st.session_state.current_month = 12
@@ -469,14 +469,14 @@ with col_month:
         st.rerun()
 
 with col_today:
-    st.write("") # 垂直對齊用
+    st.write("") # 垂直置中
     if st.button("今天", key="btn_go_today", use_container_width=True):
         st.session_state.current_year = today.year
         st.session_state.current_month = today.month
         st.rerun()
 
 with col_next:
-    st.write("") # 垂直對齊用
+    st.write("") # 垂直置中
     if st.button("下個月 ＞", key="btn_next_month", use_container_width=True):
         if st.session_state.current_month == 12:
             st.session_state.current_month = 1
@@ -490,6 +490,11 @@ st.markdown(
     f"<h3 style='text-align: center; margin: 10px 0;'>🗓️ {st.session_state.current_year} 年 {st.session_state.current_month} 月</h3>", 
     unsafe_allow_html=True
 )
+
+# 定義連結字串前綴 (補齊後續月曆格點擊所需變數)
+base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
+link_prefix = f"?{base_url_params}&" if base_url_params else "?"
+
 # ----------------- 7. 繪製 HTML 月曆 -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
