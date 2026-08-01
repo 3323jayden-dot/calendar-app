@@ -198,7 +198,7 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格與行程管理 (響應式完美網格版)
+# TAB 1: 📅 視覺化日曆網格與行程管理 (支援點擊日期查看)
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -206,100 +206,62 @@ with tab_cal:
     if not st.session_state.logged_in:
         st.warning("⚠️ 目前為訪客預覽模式。登入後可新增與編輯您的專屬行程。")
 
-    # 月曆年月選擇控制項
-    c_y, c_m, c_d = st.columns([1, 1, 2])
     today = date.today()
+    if "selected_cal_date" not in st.session_state:
+        st.session_state["selected_cal_date"] = str(today)
+
+    # 年月選擇器
+    c_y, c_m, c_info = st.columns([1, 1, 2])
     with c_y:
         sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
     with c_m:
         sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
-
-    # 點擊選擇日期的紀錄機制
-    if "selected_cal_date" not in st.session_state:
-        st.session_state["selected_cal_date"] = str(today)
+    with c_info:
+        st.info(f"💡 目前選擇查看的日期：**{st.session_state['selected_cal_date']}**")
 
     st.markdown("---")
     
-    # --- 渲染 RWD 響應式 CSS 月曆 ---
-    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽")
+    # 自訂 CSS 防破版（強制微型按鈕與精緻邊框）
+    st.markdown("""
+    <style>
+    div[data-testid="column"] button {
+        padding: 4px 0px !important;
+        min-height: 48px !important;
+        font-size: 13px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽（點擊下方日期可直接切換）")
     
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
     
-    # 建立 CSS Grid 樣式
-    calendar_css = """
-    <style>
-    .cal-container {
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 6px;
-        width: 100%;
-        margin-bottom: 20px;
-    }
-    .cal-header {
-        background-color: #f0f2f6;
-        color: #333;
-        font-weight: bold;
-        text-align: center;
-        padding: 8px 2px;
-        border-radius: 6px;
-        font-size: 14px;
-    }
-    .cal-day {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 6px;
-        min-height: 52px;
-        padding: 4px;
-        text-align: center;
-        font-size: 13px;
-        color: #333;
-    }
-    .cal-day-empty {
-        background-color: transparent;
-        border: none;
-    }
-    .cal-badge {
-        background-color: #007aff;
-        color: white;
-        font-size: 10px;
-        padding: 1px 4px;
-        border-radius: 10px;
-        margin-top: 2px;
-        display: inline-block;
-    }
-    </style>
-    """
-    st.markdown(calendar_css, unsafe_allow_html=True)
-    
-    # 開始構建 HTML 網格
-    cal_html = '<div class="cal-container">'
-    
-    # 1. 渲染星期標頭
-    for day_name in weekdays:
-        cal_html += f'<div class="cal-header">週{day_name}</div>'
+    # 渲染星期標頭
+    cols_head = st.columns(7)
+    for idx, day_name in enumerate(weekdays):
+        cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#555;'>週{day_name}</div>", unsafe_allow_html=True)
         
-    # 2. 渲染每日格子
+    # 渲染點擊式月曆格子
     for week in cal:
-        for day in week:
+        cols = st.columns(7)
+        for idx, day in enumerate(week):
             if day == 0:
-                cal_html += '<div class="cal-day-empty"></div>'
+                cols[idx].write("")
             else:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
+                # 統計當天行程
                 day_events = [e for e in events if e.get("date") == day_str]
                 
-                badge_html = f'<br/><span class="cal-badge">{len(day_events)} 件</span>' if day_events else ''
-                cal_html += f'<div class="cal-day"><b>{day}</b>{badge_html}</div>'
-                
-    cal_html += '</div>'
-    
-    # 渲染 HTML 月曆
-    st.markdown(cal_html, unsafe_allow_html=True)
-
-    # 快捷日期選擇按鈕
-    with c_d:
-        selected_date_input = st.date_input("查看或新增行程的指定日期", value=datetime.strptime(st.session_state["selected_cal_date"], "%Y-%m-%d").date())
-        st.session_state["selected_cal_date"] = str(selected_date_input)
+                # 建立按鈕顯示文字
+                btn_label = f"{day}"
+                if day_events:
+                    btn_label += f"\n📌({len(day_events)})"
+                    
+                # 點擊按鈕即可切換全局選擇日期
+                if cols[idx].button(btn_label, key=f"btn_cal_{day_str}", use_container_width=True):
+                    st.session_state["selected_cal_date"] = day_str
+                    st.rerun()
 
     st.markdown("---")
     
@@ -314,6 +276,7 @@ with tab_cal:
         if st.session_state.logged_in:
             with st.form("add_event_form", clear_on_submit=True):
                 e_title = st.text_input("行程名稱（必填）")
+                # 日期自動帶入點選的日期
                 e_date = st.date_input("行程日期", value=current_selected_date)
                 e_cate = st.selectbox("行程分類", ["工作", "個人", "重要提醒", "休閒"])
                 e_desc = st.text_area("行程詳細備註")
@@ -331,6 +294,7 @@ with tab_cal:
                         }
                         events.append(new_ev)
                         save_data(EVENTS_FILE, events)
+                        # 更新選擇日期為剛新增的日期
                         st.session_state["selected_cal_date"] = str(e_date)
                         st.success("行程新增成功！")
                         st.rerun()
@@ -342,21 +306,21 @@ with tab_cal:
         
         filter_cate = st.selectbox("分類篩選", ["全部", "工作", "個人", "重要提醒", "休閒"])
         
-        # 篩選特定日期的行程
+        # 篩選當前點選日期的行程
         date_events = [e for e in events if e.get("date") == selected_date_str]
         if filter_cate != "全部":
             date_events = [e for e in date_events if e.get("category") == filter_cate]
             
         if not date_events:
-            st.info(f"{selected_date_str} 目前沒有行程安排。")
+            st.info(f"💡 {selected_date_str} 目前沒有安排任何行程。")
         else:
             for idx, ev in enumerate(date_events):
-                with st.expander(f"📌 {ev['title']} ({ev.get('category', '一般')})"):
+                with st.expander(f"📌 {ev['title']} ({ev.get('category', '一般')})", expanded=True):
                     st.write(f"**詳細備註**：{ev.get('description') if ev.get('description') else '無'}")
                     st.caption(f"建立者：{ev.get('creator', '未知')}")
                     
                     if st.session_state.logged_in and (st.session_state.user_email == ev.get('creator') or st.session_state.user_email == ADMIN_EMAIL):
-                        if st.button("🗑️ 刪除此行程", key=f"del_event_{idx}"):
+                        if st.button("🗑️ 刪除此行程", key=f"del_ev_{selected_date_str}_{idx}"):
                             events.remove(ev)
                             save_data(EVENTS_FILE, events)
                             st.rerun()
