@@ -200,7 +200,7 @@ else:
         st.rerun()
 
 # 🛡️ 管理員專屬後台 (查看/修改所有帳號密碼)
-if st.session_state.logged_in and st.session_state.user_email == 3323jayden@gmail.com:
+if st.session_state.logged_in and st.session_state.user_email == "3323jayden@gmail.com":
     st.sidebar.divider()
     with st.sidebar.expander("🛡️ 系統後台管理 (Admin Only)", expanded=False):
         st.markdown("**管理員帳號控制台**")
