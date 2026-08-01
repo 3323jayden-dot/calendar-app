@@ -5,7 +5,8 @@ import json
 import os
 import uuid
 import hashlib
-import random
+import urllib.parse
+import requests
 
 # ----------------- 0. 網頁基本設定 & GitHub Favicon -----------------
 st.set_page_config(
@@ -42,103 +43,142 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def generate_token(email, password):
-    return hashlib.sha256(f"{email}_{password}_calendar_secret".encode()).hexdigest()[:16]
+def generate_token(email, salt):
+    return hashlib.sha256(f"{email}_{salt}_calendar_secret".encode()).hexdigest()[:16]
 
 users = load_json(USER_FILE, {})
 all_calendars = load_json(CALENDARS_FILE, {})
 
-# Session State 初始化
-if "verify_code" not in st.session_state:
-    st.session_state.verify_code = None
-if "pending_email" not in st.session_state:
-    st.session_state.pending_email = None
-
-# ----------------- 1. 網址憑證自動登入機制 -----------------
+# ----------------- 1. Google OAuth 授權邏輯 -----------------
 query_params = st.query_params
-url_user = query_params.get("user")
-url_token = query_params.get("token")
+
+# 讀取 st.secrets 中的 Google 資訊 (若未設定則使用備用設定)
+# ✅ 修改後的安全版本：
+google_secrets = st.secrets.get("google", {})
+
+CLIENT_ID = google_secrets.get("client_id", "")
+CLIENT_SECRET = google_secrets.get("client_secret", "")
+REDIRECT_URI = google_secrets.get("redirect_uri", "https://calendar-app-1.streamlit.app/")
+
+CLIENT_ID = google_secrets.get("client_id")
+CLIENT_SECRET = google_secrets.get("client_secret")
+REDIRECT_URI = google_secrets.get("redirect_uri")
+
+def get_google_auth_url():
+    params = {
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
+        "access_type": "offline",
+        "prompt": "consent"
+    }
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+
+def get_google_user_info(auth_code):
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": auth_code,
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "redirect_uri": REDIRECT_URI,
+        "grant_type": "authorization_code"
+    }
+    res = requests.post(token_url, data=data)
+    if res.status_code == 200:
+        access_token = res.json().get("access_token")
+        user_info_res = requests.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        if user_info_res.status_code == 200:
+            return user_info_res.json()
+    return None
 
 current_user_email = None
 
+# A. 處理從 Google 登入完成回傳的 Authorization Code
+if "code" in query_params:
+    auth_code = query_params["code"]
+    user_info = get_google_user_info(auth_code)
+    if user_info:
+        email = user_info.get("email")
+        name = user_info.get("name", email.split("@")[0])
+        picture = user_info.get("picture", "")
+        
+        if email not in users:
+            users[email] = {
+                "name": name,
+                "picture": picture,
+                "categories": DEFAULT_CATEGORIES.copy()
+            }
+        else:
+            users[email]["name"] = users[email].get("name", name)
+            users[email]["picture"] = picture
+        save_json(USER_FILE, users)
+        
+        token = generate_token(email, "google_login")
+        st.query_params.clear()
+        st.query_params["user"] = email
+        st.query_params["token"] = token
+        st.rerun()
+
+# B. 檢查網址列 Token 自動登入
+url_user = query_params.get("user")
+url_token = query_params.get("token")
+
 if url_user and url_token and url_user in users:
-    # 安全取得密碼（自動相容舊版字串格式與新版字典格式）
-    u_data = users[url_user]
-    user_pwd = u_data["password"] if isinstance(u_data, dict) else u_data
-    
-    expected_token = generate_token(url_user, user_pwd)
+    expected_token = generate_token(url_user, "google_login")
     if url_token == expected_token:
         current_user_email = url_user
 
-# ----------------- 2. Email 註冊 / 登入介面 -----------------
+# ----------------- 2. 未登入：跳出 Google 登入按鈕 -----------------
 if not current_user_email:
-    st.title("🔐 共享線上行事曆")
-    tab_login, tab_register = st.tabs(["🔑 帳號登入", "✉️ Email 註冊"])
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.title("🗓️ 共享線上行事曆")
+    st.caption("歡迎使用！請透過 Google 帳號一鍵登入以同步您的個人與共用行程。")
     
-    with tab_login:
-        with st.form("login_form"):
-            email_in = st.text_input("電子郵件 (Email)").strip().lower()
-            pass_in = st.text_input("密碼", type="password").strip()
-            
-            if st.form_submit_button("登入並保持登入", use_container_width=True):
-                if email_in in users and users[email_in]["password"] == pass_in:
-                    token = generate_token(email_in, pass_in)
-                    st.query_params["user"] = email_in
-                    st.query_params["token"] = token
-                    st.success(f"登入成功！歡迎，{users[email_in].get('name', email_in)}")
-                    st.rerun()
-                else:
-                    st.error("Email 或密碼錯誤！")
-                    
-    with tab_register:
-        st.markdown("##### 1. 輸入註冊資訊並發送驗證碼")
-        reg_name = st.text_input("您的顯示暱稱 (例如：張小明)").strip()
-        reg_email = st.text_input("您的 Email 帳號").strip().lower()
-        reg_pass = st.text_input("設定密碼", type="password").strip()
-        
-        if st.button("📩 傳送 6 位數驗證碼", use_container_width=True):
-            if not reg_email or "@" not in reg_email:
-                st.warning("請輸入有效的 Email！")
-            elif reg_email in users:
-                st.error("這個 Email 已經註冊過了！")
-            elif not reg_name or not reg_pass:
-                st.warning("請填寫完整的暱稱與密碼！")
-            else:
-                code = str(random.randint(100000, 999999))
-                st.session_state.verify_code = code
-                st.session_state.pending_email = reg_email
-                st.success(f"✅ 驗證碼已發送！(測試模式預覽：驗證碼為 [{code}])")
-                
-        st.divider()
-        st.markdown("##### 2. 輸入驗證碼完成註冊")
-        input_code = st.text_input("請輸入收到 6 位數驗證碼").strip()
-        
-        if st.button("🎉 完成註冊並登入", use_container_width=True):
-            if input_code and input_code == st.session_state.verify_code and reg_email == st.session_state.pending_email:
-                users[reg_email] = {
-                    "name": reg_name,
-                    "password": reg_pass,
-                    "categories": DEFAULT_CATEGORIES.copy()
-                }
-                save_json(USER_FILE, users)
-                st.session_state.verify_code = None
-                st.session_state.pending_email = None
-                
-                # 自動登入
-                token = generate_token(reg_email, reg_pass)
-                st.query_params["user"] = reg_email
-                st.query_params["token"] = token
-                st.success("註冊成功！正在跳轉...")
-                st.rerun()
-            else:
-                st.error("驗證碼不正確或已失效！")
+    st.divider()
+    
+    auth_url = get_google_auth_url()
+    google_btn_html = f"""
+    <div style="text-align: center; margin-top: 20px;">
+        <a href="{auth_url}" target="_self" style="
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #ffffff;
+            color: #757575;
+            border: 1px solid #dadce0;
+            border-radius: 4px;
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: 500;
+            text-decoration: none;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            transition: background-color 0.2s;
+        ">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" style="width:20px; height:20px; margin-right:12px;">
+            使用 Google 帳號登入 / 註冊
+        </a>
+    </div>
+    """
+    st.markdown(google_btn_html, unsafe_allow_html=True)
     st.stop()
 
-# 當前使用者資料與分類載入
+# ----------------- 3. 已登入：初始化個人資料與分類 -----------------
+raw_user_data = users[current_user_email]
+if not isinstance(raw_user_data, dict):
+    users[current_user_email] = {
+        "name": current_user_email.split("@")[0],
+        "categories": DEFAULT_CATEGORIES.copy()
+    }
+    save_json(USER_FILE, users)
+
 user_data = users[current_user_email]
 user_categories = user_data.setdefault("categories", DEFAULT_CATEGORIES.copy())
 
-# 個人日曆檢查
+# 個人日曆確認
 personal_cal_id = f"personal_{current_user_email}"
 if personal_cal_id not in all_calendars:
     all_calendars[personal_cal_id] = {
@@ -154,49 +194,45 @@ user_accessible_cals = {
     if current_user_email in cdata.get("members", [])
 }
 
-# ----------------- 3. 主選單 (Sidebar) -----------------
+# ----------------- 4. 左側邊欄 (Sidebar) 選單區 -----------------
 with st.sidebar:
-    st.write(f"👤 當前使用者：**{user_data.get('name', current_user_email)}**")
+    # 顯示使用者頭像與暱稱
+    user_pic = user_data.get("picture", "")
+    if user_pic:
+        st.image(user_pic, width=50)
+    st.write(f"👤 **{user_data.get('name', current_user_email)}**")
+    st.caption(current_user_email)
+    
     if st.button("🚪 登出系統", use_container_width=True):
         st.query_params.clear()
         st.rerun()
         
     st.divider()
     
-    # --- 區塊 1: 帳戶設定 ---
-    with st.expander("⚙️ 帳戶與偏好設定"):
-        new_nickname = st.text_input("更改暱稱", value=user_data.get("name", ""))
+    # 區塊 1: 帳戶偏好設定
+    with st.expander("⚙️ 帳戶偏好設定"):
+        new_nickname = st.text_input("更改顯示暱稱", value=user_data.get("name", ""))
         if st.button("儲存暱稱"):
             if new_nickname.strip():
                 users[current_user_email]["name"] = new_nickname.strip()
                 save_json(USER_FILE, users)
                 st.success("暱稱已成功更新！")
                 st.rerun()
-                
-        st.caption("變更密碼")
-        new_pwd = st.text_input("新密碼", type="password")
-        if st.button("更新密碼"):
-            if new_pwd.strip():
-                users[current_user_email]["password"] = new_pwd.strip()
-                save_json(USER_FILE, users)
-                token = generate_token(current_user_email, new_pwd.strip())
-                st.query_params["token"] = token
-                st.success("密碼已成功更新！")
 
-    # --- 區塊 2: 跨日細節規劃小日曆 ---
+    # 區塊 2: 跨日細節規劃小日曆
     with st.expander("📝 跨日細節規劃 (幾號至幾號)"):
-        st.caption("選擇時間區間以快速建立跨日行程：")
+        st.caption("選取區間快速新增連續行程：")
         date_range = st.date_input(
             "選擇區間",
             value=(datetime.date.today(), datetime.date.today()),
             key="side_range_picker"
         )
         range_cat = st.selectbox("📌 選擇類別", list(user_categories.keys()), key="side_cat")
-        range_title = st.text_input("行程標題", placeholder="例：暑期實習 / 請假", key="side_title")
-        range_note = st.text_area("詳細規劃/備註", placeholder="補充說明...", key="side_note")
+        range_title = st.text_input("行程標題", placeholder="例：跨週考試 / 連續請假", key="side_title")
+        range_note = st.text_area("詳細備註", placeholder="補充說明...", key="side_note")
         
         selected_cal_for_range = st.selectbox(
-            "添加到哪個日曆：",
+            "新增至日曆：",
             options=list(user_accessible_cals.keys()),
             format_func=lambda x: user_accessible_cals[x],
             key="side_cal_select"
@@ -219,13 +255,13 @@ with st.sidebar:
                     })
                     curr_d += datetime.timedelta(days=1)
                 save_json(CALENDARS_FILE, all_calendars)
-                st.success(f"成功新增 {start_d} 至 {end_d} 的行程！")
+                st.success(f"已新增 {start_d} 至 {end_d} 行程！")
                 st.rerun()
 
-    # --- 區塊 3: 客製化行程分類 ---
-    with st.expander("🎨 客製化行程分類"):
+    # 區塊 3: 客製化行程類別
+    with st.expander("🎨 客製化行程類別"):
         st.markdown("**新增/修改類別：**")
-        cat_name = st.text_input("類別名稱", placeholder="例：加班").strip()
+        cat_name = st.text_input("類別名稱", placeholder="例：加班 / 聚會").strip()
         cat_icon = st.text_input("Emoji 圖示", value="📌").strip()
         cat_color = st.color_picker("代表顏色", "#1E88E5")
         
@@ -237,23 +273,23 @@ with st.sidebar:
                     "icon": cat_icon
                 }
                 save_json(USER_FILE, users)
-                st.success(f"已新增/更新分類：{cat_name}")
+                st.success(f"已新增分類：{cat_name}")
                 st.rerun()
                 
         st.caption("已有類別：")
         st.write(" / ".join(user_categories.keys()))
 
-    # --- 區塊 4: 共用日曆切換與管理 ---
+    # 區塊 4: 日曆切換與共用
     st.divider()
     st.subheader("📅 日曆切換")
     selected_cal_id = st.selectbox(
-        "切換檢視的日曆：",
+        "選擇日曆：",
         options=list(user_accessible_cals.keys()),
         format_func=lambda x: user_accessible_cals[x]
     )
     
     with st.expander("➕ 建立/加入共用日曆"):
-        new_cal_name = st.text_input("新建共用日曆名稱", placeholder="例：家族專案")
+        new_cal_name = st.text_input("建立新共用日曆", placeholder="例：專案討論組")
         if st.button("建立"):
             if new_cal_name.strip():
                 new_id = f"shared_{uuid.uuid4().hex[:8]}"
@@ -272,20 +308,20 @@ with st.sidebar:
                 if current_user_email not in all_calendars[invite_code]["members"]:
                     all_calendars[invite_code]["members"].append(current_user_email)
                     save_json(CALENDARS_FILE, all_calendars)
-                    st.success("已成功加入！")
+                    st.success("成功加入！")
                     st.rerun()
 
 current_cal_data = all_calendars[selected_cal_id]
 current_events = current_cal_data["events"]
 
-# ----------------- 4. 點擊日期的中間懸浮彈窗 (Dialog) -----------------
+# ----------------- 5. 點擊日期的懸浮彈窗 (Dialog) -----------------
 @st.dialog("📅 管理當日行程")
 def manage_events_dialog(date_str):
     st.markdown(f"### **{date_str}**")
     cat = st.selectbox("📌 選擇類別", list(user_categories.keys()))
     
     with st.form(key=f"modal_add_{date_str}"):
-        title = st.text_input("標題 *", placeholder="例：數學考試")
+        title = st.text_input("標題 *", placeholder="例：數學期末考")
         note = st.text_input("備註 (選填)", placeholder="補充說明...")
         
         if st.form_submit_button("✨ 新增行程", use_container_width=True):
@@ -326,7 +362,7 @@ def manage_events_dialog(date_str):
                     st.query_params.pop("selected_date", None)
                     st.rerun()
 
-# ----------------- 5. 主日曆介面與絕不換行導覽 -----------------
+# ----------------- 6. 主日曆導覽列 (絕不換行) -----------------
 today = datetime.date.today()
 if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
@@ -361,7 +397,6 @@ st.title(f"{current_cal_data['name']}")
 base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
 link_prefix = f"?{base_url_params}&" if base_url_params else "?"
 
-# HTML Flexbox 防換行導覽列
 nav_html = f"""
 <style>
 .nav-container {{
@@ -403,7 +438,7 @@ nav_html = f"""
 """
 st.markdown(nav_html, unsafe_allow_html=True)
 
-# ----------------- 6. 繪製可點擊 HTML 大月曆 -----------------
+# ----------------- 7. 繪製 HTML 月曆 -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
 
@@ -511,7 +546,7 @@ selected_date_param = query_params.get("selected_date")
 if selected_date_param:
     manage_events_dialog(selected_date_param)
 
-# ----------------- 7. 即將到來的行程 -----------------
+# ----------------- 8. 即將到來的行程 -----------------
 st.divider()
 st.subheader("🔮 即將到來的行程")
 upcoming = []
