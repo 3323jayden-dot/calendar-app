@@ -421,7 +421,7 @@ def manage_events_dialog(date_str):
                     st.query_params.pop("selected_date", None)
                     st.rerun()
 
-# ----------------- 6. 主日曆導覽列 (純原生控制，無滑動版) -----------------
+# ----------------- 6. 主日曆導覽列 (使用 Callback 徹底解決跳月與卡住問題) -----------------
 today = datetime.date.today()
 
 # 初始化 session state 年月
@@ -430,60 +430,63 @@ if "current_year" not in st.session_state:
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
 
+# --- 定義狀態變更的 Callback 函式 (避免二次觸發) ---
+def change_month(delta):
+    new_month = st.session_state.current_month + delta
+    if new_month > 12:
+        st.session_state.current_month = 1
+        st.session_state.current_year += 1
+    elif new_month < 1:
+        st.session_state.current_month = 12
+        st.session_state.current_year -= 1
+    else:
+        st.session_state.current_month = new_month
+
+def go_today():
+    st.session_state.current_year = today.year
+    st.session_state.current_month = today.month
+
+def on_year_change():
+    st.session_state.current_year = st.session_state.select_year_bar
+
+def on_month_change():
+    st.session_state.current_month = st.session_state.select_month_bar
+
 st.title(f"{current_cal_data['name']}")
 
 # 頂部導覽控制區
 col_prev, col_year, col_month, col_today, col_next = st.columns([1.2, 2, 2, 1.5, 1.2])
 
 with col_prev:
-    st.write("") # 垂直置中
-    if st.button("＜ 上個月", key="btn_prev_month", use_container_width=True):
-        if st.session_state.current_month == 1:
-            st.session_state.current_month = 12
-            st.session_state.current_year -= 1
-        else:
-            st.session_state.current_month -= 1
-        st.rerun()
+    st.write("") 
+    st.button("＜ 上個月", key="btn_prev_month", use_container_width=True, on_click=change_month, args=(-1,))
 
 with col_year:
     year_options = list(range(today.year - 10, today.year + 11))
-    sel_y = st.selectbox(
+    st.selectbox(
         "年份", 
         year_options, 
         index=year_options.index(st.session_state.current_year),
-        key="select_year_bar"
+        key="select_year_bar",
+        on_change=on_year_change
     )
-    if sel_y != st.session_state.current_year:
-        st.session_state.current_year = sel_y
-        st.rerun()
 
 with col_month:
-    sel_m = st.selectbox(
+    st.selectbox(
         "月份", 
         list(range(1, 13)), 
         index=st.session_state.current_month - 1,
-        key="select_month_bar"
+        key="select_month_bar",
+        on_change=on_month_change
     )
-    if sel_m != st.session_state.current_month:
-        st.session_state.current_month = sel_m
-        st.rerun()
 
 with col_today:
-    st.write("") # 垂直置中
-    if st.button("今天", key="btn_go_today", use_container_width=True):
-        st.session_state.current_year = today.year
-        st.session_state.current_month = today.month
-        st.rerun()
+    st.write("") 
+    st.button("今天", key="btn_go_today", use_container_width=True, on_click=go_today)
 
 with col_next:
-    st.write("") # 垂直置中
-    if st.button("下個月 ＞", key="btn_next_month", use_container_width=True):
-        if st.session_state.current_month == 12:
-            st.session_state.current_month = 1
-            st.session_state.current_year += 1
-        else:
-            st.session_state.current_month += 1
-        st.rerun()
+    st.write("") 
+    st.button("下個月 ＞", key="btn_next_month", use_container_width=True, on_click=change_month, args=(1,))
 
 # 顯示當前年月大標題
 st.markdown(
@@ -494,6 +497,8 @@ st.markdown(
 # 定義連結字串前綴 (確保點擊日期可以正確帶上帳號資訊)
 base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
 link_prefix = f"?{base_url_params}&" if base_url_params else "?"
+
+# ----------------- 7. 繪製 HTML 月曆 (純靜態，無 JavaScript) -----------------
 
 # ----------------- 7. 繪製 HTML 月曆 (純靜態，無 JavaScript) -----------------
 cal = calendar.Calendar(firstweekday=6)
