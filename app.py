@@ -49,20 +49,14 @@ def generate_token(email, salt):
 users = load_json(USER_FILE, {})
 all_calendars = load_json(CALENDARS_FILE, {})
 
-# ----------------- 1. Google OAuth 授權邏輯 -----------------
+# ----------------- 1. Google OAuth 安全讀取 -----------------
 query_params = st.query_params
 
-# 讀取 st.secrets 中的 Google 資訊 (若未設定則使用備用設定)
-# ✅ 修改後的安全版本：
+# 從 Streamlit Secrets 讀取敏感資訊（不寫死在程式碼中）
 google_secrets = st.secrets.get("google", {})
-
 CLIENT_ID = google_secrets.get("client_id", "")
 CLIENT_SECRET = google_secrets.get("client_secret", "")
 REDIRECT_URI = google_secrets.get("redirect_uri", "https://calendar-app-1.streamlit.app/")
-
-CLIENT_ID = google_secrets.get("client_id")
-CLIENT_SECRET = google_secrets.get("client_secret")
-REDIRECT_URI = google_secrets.get("redirect_uri")
 
 def get_google_auth_url():
     params = {
@@ -97,7 +91,7 @@ def get_google_user_info(auth_code):
 
 current_user_email = None
 
-# A. 處理從 Google 登入完成回傳的 Authorization Code
+# A. 處理從 Google 授權成功回傳
 if "code" in query_params:
     auth_code = query_params["code"]
     user_info = get_google_user_info(auth_code)
@@ -109,11 +103,13 @@ if "code" in query_params:
         if email not in users:
             users[email] = {
                 "name": name,
+                "password": "", # Google 登入無需密碼
                 "picture": picture,
                 "categories": DEFAULT_CATEGORIES.copy()
             }
         else:
-            users[email]["name"] = users[email].get("name", name)
+            if isinstance(users[email], str): # 自動相容舊格式
+                users[email] = {"name": email.split("@")[0], "password": users[email], "categories": DEFAULT_CATEGORIES.copy()}
             users[email]["picture"] = picture
         save_json(USER_FILE, users)
         
@@ -123,54 +119,108 @@ if "code" in query_params:
         st.query_params["token"] = token
         st.rerun()
 
-# B. 檢查網址列 Token 自動登入
+# B. 檢查網址列 Token 自動驗證
 url_user = query_params.get("user")
 url_token = query_params.get("token")
 
 if url_user and url_token and url_user in users:
-    expected_token = generate_token(url_user, "google_login")
-    if url_token == expected_token:
+    # 先安全取得密碼/字串
+    u_data = users[url_user]
+    user_pwd = u_data.get("password", "") if isinstance(u_data, dict) else u_data
+    
+    # 判斷是傳統密碼 Token 還是 Google Token
+    expected_token_normal = generate_token(url_user, user_pwd)
+    expected_token_google = generate_token(url_user, "google_login")
+    
+    if url_token in (expected_token_normal, expected_token_google):
         current_user_email = url_user
 
-# ----------------- 2. 未登入：跳出 Google 登入按鈕 -----------------
+# ----------------- 2. 未登入：提供「Google 快捷登入」+「傳統帳密 / 註冊」 -----------------
 if not current_user_email:
-    st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("🗓️ 共享線上行事曆")
-    st.caption("歡迎使用！請透過 Google 帳號一鍵登入以同步您的個人與共用行程。")
+    st.caption("請登入您的帳號以使用完整功能。")
     
-    st.divider()
+    # 捷徑 A: Google 一鍵登入
+    if CLIENT_ID and CLIENT_SECRET:
+        auth_url = get_google_auth_url()
+        google_btn_html = f"""
+        <div style="text-align: center; margin: 15px 0;">
+            <a href="{auth_url}" target="_self" style="
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                background-color: #ffffff;
+                color: #757575;
+                border: 1px solid #dadce0;
+                border-radius: 6px;
+                padding: 10px 24px;
+                font-size: 15px;
+                font-weight: 500;
+                text-decoration: none;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            ">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" style="width:18px; height:18px; margin-right:10px;">
+                使用 Google 帳號快速登入 / 註冊
+            </a>
+        </div>
+        """
+        st.markdown(google_btn_html, unsafe_allow_html=True)
+        st.markdown("<div style='text-align:center; color:#888; font-size:12px;'>—— 或使用傳統帳號密碼 ——</div>", unsafe_allow_html=True)
+
+    # 捷徑 B: 傳統帳密登入 / 註冊（完全保留！）
+    tab_login, tab_register = st.tabs(["🔑 傳統帳密登入", "📝 註冊新帳號"])
     
-    auth_url = get_google_auth_url()
-    google_btn_html = f"""
-    <div style="text-align: center; margin-top: 20px;">
-        <a href="{auth_url}" target="_self" style="
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            background-color: #ffffff;
-            color: #757575;
-            border: 1px solid #dadce0;
-            border-radius: 4px;
-            padding: 10px 20px;
-            font-size: 16px;
-            font-weight: 500;
-            text-decoration: none;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            transition: background-color 0.2s;
-        ">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" style="width:20px; height:20px; margin-right:12px;">
-            使用 Google 帳號登入 / 註冊
-        </a>
-    </div>
-    """
-    st.markdown(google_btn_html, unsafe_allow_html=True)
+    with tab_login:
+        with st.form("login_form"):
+            email_in = st.text_input("Email").strip()
+            pass_in = st.text_input("密碼", type="password")
+            
+            if st.form_submit_button("登入並保持登入", use_container_width=True):
+                u_data = users.get(email_in)
+                stored_pwd = u_data.get("password") if isinstance(u_data, dict) else u_data
+                
+                if u_data and stored_pwd == pass_in:
+                    token = generate_token(email_in, pass_in)
+                    st.query_params["user"] = email_in
+                    st.query_params["token"] = token
+                    st.success("登入成功！")
+                    st.rerun()
+                else:
+                    st.error("Email 或密碼錯誤！")
+                    
+    with tab_register:
+        with st.form("reg_form"):
+            new_email = st.text_input("註冊 Email").strip()
+            new_pass = st.text_input("設定密碼", type="password")
+            new_pass_confirm = st.text_input("確認密碼", type="password")
+            
+            if st.form_submit_button("建立新帳號", use_container_width=True):
+                if not new_email or not new_pass:
+                    st.error("請完整填寫 Email 與密碼！")
+                elif new_pass != new_pass_confirm:
+                    st.error("兩次密碼輸入不一致！")
+                elif new_email in users:
+                    st.error("此 Email 已經註冊過！")
+                else:
+                    users[new_email] = {
+                        "name": new_email.split("@")[0],
+                        "password": new_pass,
+                        "categories": DEFAULT_CATEGORIES.copy()
+                    }
+                    save_json(USER_FILE, users)
+                    token = generate_token(new_email, new_pass)
+                    st.query_params["user"] = new_email
+                    st.query_params["token"] = token
+                    st.success("註冊成功！已自動為您登入。")
+                    st.rerun()
     st.stop()
 
-# ----------------- 3. 已登入：初始化個人資料與分類 -----------------
+# ----------------- 3. 已登入：初始化個人資料 -----------------
 raw_user_data = users[current_user_email]
 if not isinstance(raw_user_data, dict):
     users[current_user_email] = {
         "name": current_user_email.split("@")[0],
+        "password": raw_user_data,
         "categories": DEFAULT_CATEGORIES.copy()
     }
     save_json(USER_FILE, users)
@@ -196,7 +246,6 @@ user_accessible_cals = {
 
 # ----------------- 4. 左側邊欄 (Sidebar) 選單區 -----------------
 with st.sidebar:
-    # 顯示使用者頭像與暱稱
     user_pic = user_data.get("picture", "")
     if user_pic:
         st.image(user_pic, width=50)
