@@ -7,67 +7,6 @@ import uuid
 import hashlib
 import urllib.parse
 import requests
-import streamlit as st
-import json
-
-# ----------------- PWA 安裝與 Manifest 注入 -----------------
-pwa_html = """
-<script>
-// 1. 動態建立 manifest.json 描述檔
-const manifest = {
-  "name": "我的雲端行事曆",
-  "short_name": "行事曆",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#007aff",
-  "icons": [
-    {
-      "src": "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg",
-      "sizes": "192x192",
-      "type": "image/jpeg"
-    },
-    {
-      "src": "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg",
-      "sizes": "512x512",
-      "type": "image/jpeg"
-    }
-  ]
-};
-
-const stringManifest = JSON.stringify(manifest);
-const blob = new Blob([stringManifest], {type: 'application/json'});
-const manifestURL = URL.createObjectURL(blob);
-let linkTag = document.createElement('link');
-linkTag.rel = 'manifest';
-linkTag.href = manifestURL;
-document.head.appendChild(linkTag);
-
-// 2. 註冊 Service Worker 允許背景運作
-if ('serviceWorker' in navigator) {
-  const swCode = `
-    self.addEventListener('install', (e) => {
-      self.skipWaiting();
-    });
-    self.addEventListener('activate', (e) => {
-      return self.clients.claim();
-    });
-    self.addEventListener('push', (e) => {
-      const data = e.data ? e.data.json() : {};
-      self.registration.showNotification(data.title || "行事曆提醒", {
-        body: data.body || "您有即將到來的行程！",
-        icon: "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg"
-      });
-    });
-  `;
-  const blobSW = new Blob([swCode], {type: 'text/javascript'});
-  const swURL = URL.createObjectURL(blobSW);
-  navigator.serviceWorker.register(swURL).catch(err => console.log('SW register fail:', err));
-}
-</script>
-"""
-
-st.components.v1.html(pwa_html, height=0)
 
 # ----------------- 0. 網頁基本設定 & GitHub Favicon -----------------
 st.set_page_config(
@@ -75,6 +14,64 @@ st.set_page_config(
     page_icon="https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg",
     layout="centered"
 )
+
+# ----------------- PWA 安裝與 Manifest 注入 (動態帶入當前使用者 Token) -----------------
+pwa_html = """
+<script>
+(function() {
+    // 自動取得當前完整的網址參數 (包含 ?user=xxx&token=yyy)
+    const currentSearch = window.parent.location.search || window.location.search;
+    const startUrl = '/' + currentSearch;
+
+    // 1. 動態建立包含使用者資訊的 manifest.json
+    const manifest = {
+      "name": "我的雲端行事曆",
+      "short_name": "行事曆",
+      "start_url": startUrl,
+      "display": "standalone",
+      "background_color": "#ffffff",
+      "theme_color": "#007aff",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg",
+          "sizes": "192x192",
+          "type": "image/jpeg"
+        },
+        {
+          "src": "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg",
+          "sizes": "512x512",
+          "type": "image/jpeg"
+        }
+      ]
+    };
+
+    const stringManifest = JSON.stringify(manifest);
+    const blob = new Blob([stringManifest], {type: 'application/json'});
+    const manifestURL = URL.createObjectURL(blob);
+    
+    // 移除舊的 manifest (如果有)
+    const oldLink = document.head.querySelector('link[rel="manifest"]');
+    if (oldLink) oldLink.remove();
+
+    let linkTag = document.createElement('link');
+    linkTag.rel = 'manifest';
+    linkTag.href = manifestURL;
+    document.head.appendChild(linkTag);
+
+    // 2. 註冊 Service Worker
+    if ('serviceWorker' in navigator) {
+      const swCode = `
+        self.addEventListener('install', (e) => self.skipWaiting());
+        self.addEventListener('activate', (e) => self.clients.claim());
+      `;
+      const blobSW = new Blob([swCode], {type: 'text/javascript'});
+      const swURL = URL.createObjectURL(blobSW);
+      navigator.serviceWorker.register(swURL).catch(err => console.log('SW fail:', err));
+    }
+})();
+</script>
+"""
+st.components.v1.html(pwa_html, height=0)
 
 USER_FILE = "users.json"
 CALENDARS_FILE = "shared_calendars.json"
@@ -394,7 +391,6 @@ with st.sidebar:
         format_func=lambda x: user_accessible_cals[x]
     )
     
-    # 修改目前日曆名稱
     with st.expander("✏️ 修改目前日曆名稱"):
         curr_cal_name = all_calendars[selected_cal_id].get("name", "")
         new_cal_name_input = st.text_input("新的日曆名稱", value=curr_cal_name, key="edit_cal_name_input")
@@ -407,7 +403,6 @@ with st.sidebar:
             else:
                 st.error("日曆名稱不能為空白！")
 
-    # 共用與建立功能
     with st.expander("➕ 建立/加入共用日曆"):
         new_cal_name = st.text_input("建立新共用日曆", placeholder="例：專案討論組")
         if st.button("建立"):
@@ -434,7 +429,7 @@ with st.sidebar:
 current_cal_data = all_calendars[selected_cal_id]
 current_events = current_cal_data["events"]
 
-# ----------------- 5. 點擊日期的懸浮彈窗 (Dialog) -----------------
+# ----------------- 5. 點擊日期的懸浮彈窗 (含 Web Notification) -----------------
 @st.dialog("📅 管理當日行程")
 def manage_events_dialog(date_str):
     st.markdown(f"### **{date_str}**")
@@ -443,6 +438,7 @@ def manage_events_dialog(date_str):
     with st.form(key=f"modal_add_{date_str}"):
         title = st.text_input("標題 *", placeholder="例：數學期末考")
         note = st.text_input("備註 (選填)", placeholder="補充說明...")
+        send_notify = st.checkbox("🔔 建立時發送網頁推播通知", value=True)
         
         if st.form_submit_button("✨ 新增行程", use_container_width=True):
             if title.strip():
@@ -455,6 +451,32 @@ def manage_events_dialog(date_str):
                     "author": user_data.get("name", current_user_email)
                 })
                 save_json(CALENDARS_FILE, all_calendars)
+                
+                # 發送 Web Notification 網頁通知
+                if send_notify:
+                    notify_js = f"""
+                    <script>
+                    if ("Notification" in window) {{
+                        if (Notification.permission === "granted") {{
+                            new Notification("🗓️ 新增行程成功！", {{
+                                body: "標題：{title.strip()}\\n日期：{date_str}\\n類別：{cat}",
+                                icon: "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg"
+                            }});
+                        }} else if (Notification.permission !== "denied") {{
+                            Notification.requestPermission().then(function (permission) {{
+                                if (permission === "granted") {{
+                                    new Notification("🗓️ 新增行程成功！", {{
+                                        body: "標題：{title.strip()}\\n日期：{date_str}\\n類別：{cat}",
+                                        icon: "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg"
+                                    }});
+                                }}
+                            }});
+                        }}
+                    }}
+                    </script>
+                    """
+                    st.components.v1.html(notify_js, height=0)
+
                 st.query_params.pop("selected_date", None)
                 st.rerun()
             else:
@@ -491,7 +513,7 @@ if "current_year" not in st.session_state:
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
 
-# --- 定義狀態變更的 Callback 函式 (避免二次觸發) ---
+# 定義 Callback 變更函式 (確保只觸發一次，且不卡住)
 def change_month(delta):
     new_month = st.session_state.current_month + delta
     if new_month > 12:
@@ -559,9 +581,7 @@ st.markdown(
 base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
 link_prefix = f"?{base_url_params}&" if base_url_params else "?"
 
-# ----------------- 7. 繪製 HTML 月曆 (純靜態，無 JavaScript) -----------------
-
-# ----------------- 7. 繪製 HTML 月曆 (純靜態，無 JavaScript) -----------------
+# ----------------- 7. 繪製 HTML 月曆 (純靜態，穩定無重複) -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
 
@@ -646,7 +666,6 @@ for week in month_days:
                         st.session_state.current_month == today.month and 
                         day == today.day)
             
-            # 回復原本的藍色底色 Today 樣式
             day_num_html = f"<span class='cal-day-today'>{day}</span>" if is_today else f"<span class='cal-day-num'>{day}</span>"
             
             day_events = current_events.get(date_key, [])
@@ -669,6 +688,7 @@ st.markdown(html_code, unsafe_allow_html=True)
 selected_date_param = query_params.get("selected_date")
 if selected_date_param:
     manage_events_dialog(selected_date_param)
+
 # ----------------- 8. 即將到來的行程 -----------------
 st.divider()
 st.subheader("🔮 即將到來的行程")
