@@ -19,12 +19,10 @@ USER_FILE = "users.json"
 CALENDARS_FILE = "shared_calendars.json"
 
 DEFAULT_CATEGORIES = {
-    "考試": {"bg": "#FFF0F0", "text": "#E53935", "icon": "📖"},
-    "作業": {"bg": "#FFFDE7", "text": "#FB8C00", "icon": "📄"},
+    "工作": {"bg": "#FFF0F0", "text": "#E53935", "icon": "💻"},
+    "出遊": {"bg": "#FFFDE7", "text": "#FB8C00", "icon": "📄"},
     "練習": {"bg": "#E8F5E9", "text": "#2E7D32", "icon": "🏋️"},
     "備忘": {"bg": "#E3F2FD", "text": "#1E88E5", "icon": "✏️"},
-    "批改": {"bg": "#F3E5F5", "text": "#8E24AA", "icon": "📝"},
-    "出題": {"bg": "#E0F7FA", "text": "#0288D1", "icon": "📋"},
     "行政": {"bg": "#F5F5F5", "text": "#616161", "icon": "📁"},
 }
 
