@@ -198,7 +198,7 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格與行程管理
+# TAB 1: 📅 視覺化日曆網格與行程管理 (響應式完美網格版)
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -207,63 +207,114 @@ with tab_cal:
         st.warning("⚠️ 目前為訪客預覽模式。登入後可新增與編輯您的專屬行程。")
 
     # 月曆年月選擇控制項
-    c_y, c_m, _ = st.columns([1, 1, 2])
+    c_y, c_m, c_d = st.columns([1, 1, 2])
     today = date.today()
     with c_y:
         sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
     with c_m:
         sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
 
+    # 點擊選擇日期的紀錄機制
+    if "selected_cal_date" not in st.session_state:
+        st.session_state["selected_cal_date"] = str(today)
+
     st.markdown("---")
     
-    # --- 渲染視覺化月曆 Grid ---
+    # --- 渲染 RWD 響應式 CSS 月曆 ---
     st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽")
     
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
     
-    # 建立月曆標頭
-    cols = st.columns(7)
-    for idx, day_name in enumerate(weekdays):
-        cols[idx].markdown(f"**星期{day_name}**")
+    # 建立 CSS Grid 樣式
+    calendar_css = """
+    <style>
+    .cal-container {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 6px;
+        width: 100%;
+        margin-bottom: 20px;
+    }
+    .cal-header {
+        background-color: #f0f2f6;
+        color: #333;
+        font-weight: bold;
+        text-align: center;
+        padding: 8px 2px;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+    .cal-day {
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        min-height: 52px;
+        padding: 4px;
+        text-align: center;
+        font-size: 13px;
+        color: #333;
+    }
+    .cal-day-empty {
+        background-color: transparent;
+        border: none;
+    }
+    .cal-badge {
+        background-color: #007aff;
+        color: white;
+        font-size: 10px;
+        padding: 1px 4px;
+        border-radius: 10px;
+        margin-top: 2px;
+        display: inline-block;
+    }
+    </style>
+    """
+    st.markdown(calendar_css, unsafe_allow_html=True)
+    
+    # 開始構建 HTML 網格
+    cal_html = '<div class="cal-container">'
+    
+    # 1. 渲染星期標頭
+    for day_name in weekdays:
+        cal_html += f'<div class="cal-header">週{day_name}</div>'
         
-    # 建立日期格子
+    # 2. 渲染每日格子
     for week in cal:
-        cols = st.columns(7)
-        for idx, day in enumerate(week):
+        for day in week:
             if day == 0:
-                cols[idx].write(" ")
+                cal_html += '<div class="cal-day-empty"></div>'
             else:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
-                # 統計當天行程數量
                 day_events = [e for e in events if e.get("date") == day_str]
                 
-                cell_text = f"**{day}**"
-                if day_events:
-                    cell_text += f"\n\n📌 ({len(day_events)}件)"
-                    
-                if cols[idx].button(cell_text, key=f"cal_day_{day_str}", use_container_width=True):
-                    st.session_state["selected_cal_date"] = day_str
+                badge_html = f'<br/><span class="cal-badge">{len(day_events)} 件</span>' if day_events else ''
+                cal_html += f'<div class="cal-day"><b>{day}</b>{badge_html}</div>'
+                
+    cal_html += '</div>'
+    
+    # 渲染 HTML 月曆
+    st.markdown(cal_html, unsafe_allow_html=True)
+
+    # 快捷日期選擇按鈕
+    with c_d:
+        selected_date_input = st.date_input("查看或新增行程的指定日期", value=datetime.strptime(st.session_state["selected_cal_date"], "%Y-%m-%d").date())
+        st.session_state["selected_cal_date"] = str(selected_date_input)
 
     st.markdown("---")
     
     # --- 行程詳細區與新增表單 ---
     col_add, col_view = st.columns([1, 2])
     
-    # 預設選擇的日期
-    default_date_val = date.today()
-    if "selected_cal_date" in st.session_state:
-        try:
-            default_date_val = datetime.strptime(st.session_state["selected_cal_date"], "%Y-%m-%d").date()
-        except Exception:
-            pass
+    selected_date_str = st.session_state["selected_cal_date"]
+    current_selected_date = datetime.strptime(selected_date_str, "%Y-%m-%d").date()
 
     with col_add:
         st.subheader("➕ 新增行程")
         if st.session_state.logged_in:
             with st.form("add_event_form", clear_on_submit=True):
                 e_title = st.text_input("行程名稱（必填）")
-                e_date = st.date_input("行程日期", value=default_date_val)
+                e_date = st.date_input("行程日期", value=current_selected_date)
                 e_cate = st.selectbox("行程分類", ["工作", "個人", "重要提醒", "休閒"])
                 e_desc = st.text_area("行程詳細備註")
                 
@@ -280,13 +331,13 @@ with tab_cal:
                         }
                         events.append(new_ev)
                         save_data(EVENTS_FILE, events)
+                        st.session_state["selected_cal_date"] = str(e_date)
                         st.success("行程新增成功！")
                         st.rerun()
         else:
             st.info("請於側邊欄登入後進行行程新增。")
 
     with col_view:
-        selected_date_str = str(default_date_val)
         st.subheader(f"📋 {selected_date_str} 行程明細")
         
         filter_cate = st.selectbox("分類篩選", ["全部", "工作", "個人", "重要提醒", "休閒"])
@@ -309,8 +360,6 @@ with tab_cal:
                             events.remove(ev)
                             save_data(EVENTS_FILE, events)
                             st.rerun()
-
-
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
