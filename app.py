@@ -5,6 +5,7 @@ import io
 import zipfile
 import re
 from datetime import datetime, date
+import calendar
 from PIL import Image, ImageEnhance, ImageOps
 import pandas as pd
 import pypdf
@@ -22,7 +23,7 @@ st.set_page_config(
 USERS_FILE = "users.json"
 EVENTS_FILE = "events.json"
 
-# 💡 請填寫您自己的管理員 Email 帳號
+# 💡 管理員 Email 帳號
 ADMIN_EMAIL = "admin@example.com"
 
 # 💡 PWA 桌面圖示直連網址
@@ -103,7 +104,7 @@ events = load_data(EVENTS_FILE, [])
 
 
 # ==============================================================================
-# 3. 會員驗證系統與側邊欄 (完整的登入 / 註冊 / 管理員後台)
+# 3. 會員驗證系統與側邊欄 (登入 / 註冊 / 管理員後台)
 # ==============================================================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -152,7 +153,7 @@ else:
         st.session_state.user_email = ""
         st.rerun()
 
-# 🛡️ 管理員專屬後台 (查看/修改所有帳號與密碼)
+# 🛡️ 管理員專屬後台 (查看/修改所有帳號密碼)
 if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
     st.sidebar.divider()
     with st.sidebar.expander("🛡️ 系統後台管理 (Admin Only)", expanded=False):
@@ -165,7 +166,6 @@ if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
                 u_info = users[selected_user_email]
                 st.text(f"用戶暱稱: {u_info.get('name', '未設定')}")
                 
-                # 欄位直接呈現目前明碼，可檢視與編輯
                 new_pwd_input = st.text_input("該帳號密碼", value=u_info.get("password", ""), key="admin_pwd_edit")
                 
                 c_save, c_del = st.columns(2)
@@ -190,7 +190,7 @@ if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
 st.title("⚡ 多功能數位工作助理與行事曆")
 
 tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
-    "📅 雲端行事曆",
+    "📅 視覺化日曆與行程",
     "📄 PDF 救星",
     "✂️ AI 圖片處理與去背",
     "📝 文本總結與防雷助理",
@@ -198,22 +198,72 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 雲端行事曆核心
+# TAB 1: 📅 視覺化日曆網格與行程管理
 # ------------------------------------------------------------------------------
 with tab_cal:
-    st.header("📅 共享雲端行事曆")
+    st.header("📅 視覺化月曆與行程表")
     
     if not st.session_state.logged_in:
-        st.warning("⚠️ 目前為訪客預覽模式。請先登入帳號以新增、管理您的行程。")
+        st.warning("⚠️ 目前為訪客預覽模式。登入後可新增與編輯您的專屬行程。")
+
+    # 月曆年月選擇控制項
+    c_y, c_m, _ = st.columns([1, 1, 2])
+    today = date.today()
+    with c_y:
+        sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
+    with c_m:
+        sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
+
+    st.markdown("---")
     
+    # --- 渲染視覺化月曆 Grid ---
+    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽")
+    
+    cal = calendar.monthcalendar(sel_year, sel_month)
+    weekdays = ["一", "二", "三", "四", "五", "六", "日"]
+    
+    # 建立月曆標頭
+    cols = st.columns(7)
+    for idx, day_name in enumerate(weekdays):
+        cols[idx].markdown(f"**星期{day_name}**")
+        
+    # 建立日期格子
+    for week in cal:
+        cols = st.columns(7)
+        for idx, day in enumerate(week):
+            if day == 0:
+                cols[idx].write(" ")
+            else:
+                day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
+                # 統計當天行程數量
+                day_events = [e for e in events if e.get("date") == day_str]
+                
+                cell_text = f"**{day}**"
+                if day_events:
+                    cell_text += f"\n\n📌 ({len(day_events)}件)"
+                    
+                if cols[idx].button(cell_text, key=f"cal_day_{day_str}", use_container_width=True):
+                    st.session_state["selected_cal_date"] = day_str
+
+    st.markdown("---")
+    
+    # --- 行程詳細區與新增表單 ---
     col_add, col_view = st.columns([1, 2])
     
+    # 預設選擇的日期
+    default_date_val = date.today()
+    if "selected_cal_date" in st.session_state:
+        try:
+            default_date_val = datetime.strptime(st.session_state["selected_cal_date"], "%Y-%m-%d").date()
+        except Exception:
+            pass
+
     with col_add:
         st.subheader("➕ 新增行程")
         if st.session_state.logged_in:
             with st.form("add_event_form", clear_on_submit=True):
                 e_title = st.text_input("行程名稱（必填）")
-                e_date = st.date_input("行程日期", value=date.today())
+                e_date = st.date_input("行程日期", value=default_date_val)
                 e_cate = st.selectbox("行程分類", ["工作", "個人", "重要提醒", "休閒"])
                 e_desc = st.text_area("行程詳細備註")
                 
@@ -236,19 +286,21 @@ with tab_cal:
             st.info("請於側邊欄登入後進行行程新增。")
 
     with col_view:
-        st.subheader("📋 行程清單")
-        filter_cate = st.selectbox("篩選分類", ["全部", "工作", "個人", "重要提醒", "休閒"])
+        selected_date_str = str(default_date_val)
+        st.subheader(f"📋 {selected_date_str} 行程明細")
         
-        filtered_events = events
+        filter_cate = st.selectbox("分類篩選", ["全部", "工作", "個人", "重要提醒", "休閒"])
+        
+        # 篩選特定日期的行程
+        date_events = [e for e in events if e.get("date") == selected_date_str]
         if filter_cate != "全部":
-            filtered_events = [e for e in events if e.get("category") == filter_cate]
+            date_events = [e for e in date_events if e.get("category") == filter_cate]
             
-        if not filtered_events:
-            st.info("目前無任何行程記錄。")
+        if not date_events:
+            st.info(f"{selected_date_str} 目前沒有行程安排。")
         else:
-            sorted_events = sorted(filtered_events, key=lambda x: x["date"])
-            for idx, ev in enumerate(sorted_events):
-                with st.expander(f"📌 {ev['date']} - {ev['title']} ({ev.get('category', '一般')})"):
+            for idx, ev in enumerate(date_events):
+                with st.expander(f"📌 {ev['title']} ({ev.get('category', '一般')})"):
                     st.write(f"**詳細備註**：{ev.get('description') if ev.get('description') else '無'}")
                     st.caption(f"建立者：{ev.get('creator', '未知')}")
                     
