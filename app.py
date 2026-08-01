@@ -243,8 +243,10 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
     "📱 社群 IG/Threads 一鍵切圖"
 ])
 
+import streamlit.components.v1 as components
+
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格（個人 + 邀請碼共享行事曆）
+# TAB 1: 📅 視覺化日曆網格（HTML/CSS 完美 7 欄不跑版 + 邀請碼共享月曆）
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -257,23 +259,19 @@ with tab_cal:
 
     today = date.today()
 
-    # --- 行事曆選擇與管理區塊 ---
+    # --- 1. 行事曆切換與管理 ---
     col_cal_sel, col_cal_mgmt = st.columns([2, 2])
     
-    # 取得當前使用者可使用的共享行事曆
-    my_shared_cals = get_user_calendars(user_email)
+    my_shared_cals = get_user_calendars(user_email) if 'get_user_calendars' in globals() else []
     cal_options = ["🔒 個人專屬行事曆"] + [f"👥 {c['name']} (代碼: {c['code']})" for c in my_shared_cals]
     
     with col_cal_sel:
         selected_cal_option = st.selectbox("📌 切換行事曆範疇", cal_options)
-        
-        # 判斷當前選中的是個人還是某個共享行事曆
         if selected_cal_option == "🔒 個人專屬行事曆":
             current_cal_mode = "personal"
             current_cal_code = None
         else:
             current_cal_mode = "shared"
-            # 抽出邀請碼
             current_cal_code = selected_cal_option.split("(代碼: ")[1].replace(")", "")
 
     with col_cal_mgmt:
@@ -284,7 +282,6 @@ with tab_cal:
                 if st.button("建立共享行事曆", use_container_width=True):
                     if new_cal_name.strip():
                         import random, string
-                        # 產生 6 位隨機邀請碼
                         inv_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
                         new_cal = {
                             "name": new_cal_name.strip(),
@@ -292,42 +289,48 @@ with tab_cal:
                             "owner": user_email,
                             "members": [user_email]
                         }
-                        calendars_data.append(new_cal)
-                        save_data(CALENDARS_FILE, calendars_data) if 'save_data' in globals() else None
-                        st.success(f"建立成功！邀請碼為：**{inv_code}**（快分享給好友！）")
+                        if 'calendars_data' in globals():
+                            calendars_data.append(new_cal)
+                            save_data(CALENDARS_FILE, calendars_data)
+                        st.success(f"建立成功！邀請碼為：**{inv_code}**")
                         st.rerun()
                     else:
-                        st.error("請輸入行事曆名稱")
+                        st.error("請輸入名稱")
                 
                 st.divider()
                 st.markdown("#### 🔑 透過邀請碼加入")
                 join_code = st.text_input("輸入 6 位邀請碼").strip().upper()
                 if st.button("加入共享行事曆", use_container_width=True):
-                    target_cal = next((c for c in calendars_data if c.get("code") == join_code), None)
-                    if target_cal:
-                        if user_email not in target_cal.setdefault("members", []):
-                            target_cal["members"].append(user_email)
-                            save_data(CALENDARS_FILE, calendars_data) if 'save_data' in globals() else None
-                            st.success(f"已成功加入「{target_cal['name']}」！")
-                            st.rerun()
+                    if 'calendars_data' in globals():
+                        target_cal = next((c for c in calendars_data if c.get("code") == join_code), None)
+                        if target_cal:
+                            if user_email not in target_cal.setdefault("members", []):
+                                target_cal["members"].append(user_email)
+                                save_data(CALENDARS_FILE, calendars_data)
+                                st.success(f"已成功加入「{target_cal['name']}」！")
+                                st.rerun()
+                            else:
+                                st.info("您已經是該行事曆的成員囉！")
                         else:
-                            st.info("您已經是該行事曆的成員囉！")
-                    else:
-                        st.error("無效的邀請碼，請重新確認。")
+                            st.error("無效的邀請碼。")
 
-    # --- 根據行事曆種類進行行程過濾 ---
+    # --- 2. 行程過濾 ---
     if current_cal_mode == "personal":
-        # 個人行事曆：只看建立者是自己，且不屬於任何共享行事曆的行程
         active_events = [e for e in events if e.get("creator") == user_email and not e.get("cal_code")]
     else:
-        # 共享行事曆：看匹配該 cal_code 的行程
         active_events = [e for e in events if e.get("cal_code") == current_cal_code]
 
-    # --- 行程彈窗對話框 (st.dialog) ---
+    # --- 3. 年月選擇 ---
+    c_y, c_m, _ = st.columns([1, 1, 2])
+    with c_y:
+        sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
+    with c_m:
+        sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
+
+    # --- 4. 行程對話框 ---
     @st.dialog("📅 行程安排與管理", width="large")
     def show_event_dialog(selected_date_str):
         st.subheader(f"📌 {selected_date_str} 的行程 ({selected_cal_option})")
-        
         day_events = [e for e in active_events if e.get("date") == selected_date_str]
         
         if not day_events:
@@ -337,24 +340,20 @@ with tab_cal:
                 with st.expander(f"📌 {ev['title']} ({ev.get('category', '一般')})", expanded=True):
                     st.write(f"**詳細備註**：{ev.get('description') if ev.get('description') else '無'}")
                     st.caption(f"建立者：{ev.get('creator', '未知')}")
-                    
-                    # 建立者或是管理員可刪除
                     if st.session_state.logged_in and (st.session_state.user_email == ev.get('creator') or st.session_state.user_email == ADMIN_EMAIL):
                         if st.button("🗑️ 刪除此行程", key=f"dlg_del_{selected_date_str}_{idx}"):
                             events.remove(ev)
-                            save_data(EVENTS_FILE, events) if 'save_data' in globals() else None
+                            save_data(EVENTS_FILE, events)
                             st.success("行程已刪除！")
                             st.rerun()
 
         st.divider()
-        
         st.markdown(f"### ➕ 新增至【{selected_cal_option}】")
         if st.session_state.logged_in:
             with st.form(f"dialog_add_form_{selected_date_str}", clear_on_submit=True):
                 e_title = st.text_input("行程名稱（必填）")
                 e_cate = st.selectbox("行程分類", ["工作", "個人", "重要提醒", "休閒"])
                 e_desc = st.text_area("行程詳細備註")
-                
                 if st.form_submit_button("💾 儲存並新增行程", use_container_width=True):
                     if not e_title.strip():
                         st.error("請填寫行程名稱！")
@@ -368,76 +367,113 @@ with tab_cal:
                             "cal_code": current_cal_code if current_cal_mode == "shared" else None
                         }
                         events.append(new_ev)
-                        save_data(EVENTS_FILE, events) if 'save_data' in globals() else None
+                        save_data(EVENTS_FILE, events)
                         st.success("行程新增成功！")
                         st.rerun()
         else:
             st.info("🔒 請於側邊欄登入帳號後進行行程新增。")
 
-    # 2. 年月選擇器
-    c_y, c_m, _ = st.columns([1, 1, 2])
-    with c_y:
-        sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
-    with c_m:
-        sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
-
+    # --- 5. 點擊日期的觸發區域 ---
+    # 下拉選擇點擊的日期以開啟對話框
     st.markdown("---")
-
-    # 3. CSS 膠囊卡片樣式
-    st.markdown("""
-    <style>
-    div[data-testid="column"] button {
-        height: 75px !important;
-        padding: 6px 10px !important;
-        border-radius: 14px !important;
-        border: 1px solid #e2e8f0 !important;
-        background-color: #ffffff !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
-    }
-    div[data-testid="column"] button:hover {
-        border-color: #cbd5e0 !important;
-        background-color: #f7fafc !important;
-    }
-    div[data-testid="column"] button p {
-        text-align: left !important;
-        font-size: 14px !important;
-        font-weight: bold !important;
-        color: #2d3748 !important;
-        line-height: 1.4 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
     
-    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽（{selected_cal_option}）")
-    
+    # 建立純 CSS/HTML 月曆 (CSS Grid 強制 7 欄，絕不上下排)
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
     
-    # 渲染星期標頭
-    cols_head = st.columns(7)
-    for idx, day_name in enumerate(weekdays):
-        cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#718096; margin-bottom:8px;'>星期{day_name}</div>", unsafe_allow_html=True)
+    html_code = """
+    <style>
+        .cal-container {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            width: 100%;
+        }
+        .cal-header {
+            text-align: center;
+            font-weight: bold;
+            color: #718096;
+            padding: 4px 0;
+            font-size: 14px;
+        }
+        .cal-day {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            height: 70px;
+            padding: 6px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: flex-start;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        .cal-day-empty {
+            background: transparent;
+            border: none;
+            height: 70px;
+        }
+        .day-num {
+            font-size: 15px;
+            font-weight: 800;
+            color: #2d3748;
+        }
+        .tag-pink {
+            background-color: #ffebee;
+            color: #e53935;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 8px;
+            margin-top: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 90%;
+        }
+    </style>
+    <div class="cal-container">
+    """
+    
+    # 星期標頭
+    for w in weekdays:
+        html_code += f'<div class="cal-header">星期{w}</div>'
         
-    # 渲染日曆網格
+    # 日期網格
     for week in cal:
-        cols = st.columns(7)
-        for idx, day in enumerate(week):
+        for day in week:
             if day == 0:
-                cols[idx].write("")
+                html_code += '<div class="cal-day-empty"></div>'
             else:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
-                # 篩選當前行事曆中的當天行程
                 day_events = [e for e in active_events if e.get("date") == day_str]
                 
-                btn_label = f"{day}"
-                
+                tag_html = ""
                 if day_events:
                     first_title = day_events[0]['title']
                     short_title = first_title[:5] + "..." if len(first_title) > 5 else first_title
-                    btn_label += f"\n\n:red-background[{short_title}]"
+                    tag_html = f'<div class="tag-pink">{short_title}</div>'
                 
-                if cols[idx].button(btn_label, key=f"btn_cal_{day_str}", use_container_width=True):
-                    show_event_dialog(day_str)
+                html_code += f'''
+                <div class="cal-day">
+                    <div class="day-num">{day}</div>
+                    {tag_html}
+                </div>
+                '''
+                
+    html_code += "</div>"
+    
+    # 渲染 HTML 月曆
+    components.html(html_code, height=520, scrolling=False)
+    
+    # 日期選擇觸發行程
+    st.markdown("👇 **點選下方日期查看或新增詳細行程：**")
+    all_days = [f"{sel_year}-{sel_month:02d}-{d:02d}" for week in cal for d in week if d != 0]
+    chosen_date = st.selectbox("選擇日期檢視", all_days, label_visibility="collapsed")
+    if st.button("📌 查看該日行程", use_container_width=True):
+        show_event_dialog(chosen_date)
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
