@@ -3,3 +3,4 @@ pillow
 pandas
 pypdf
 openpyxl
+streamlit-cookies-controller
