@@ -198,7 +198,7 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格（精準美化標籤 + 點擊彈窗）
+# TAB 1: 📅 視覺化日曆網格（完美復刻卡片標籤 + 點擊彈窗）
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -266,47 +266,30 @@ with tab_cal:
 
     st.markdown("---")
     
-    # 3. CSS 重塑按鈕樣式：讓按鈕內部轉為 Flex 上下直向排列
+    # 3. 自訂 CSS：完全貼齊圖中樣式 (白色圓角卡片 + 左上數字 + 粉紅圓角膠囊標籤)
     st.markdown("""
     <style>
-    /* 強制將按鈕轉為上下直向佈局 */
+    /* 強制修改按鈕容器 */
     div[data-testid="column"] button {
-        height: 68px !important;
-        padding: 2px 2px !important;
-        display: flex !important;
-        flex-direction: column !important;
-        justify-content: flex-start !important;
-        align-items: flex-start !important;
-        border-radius: 8px !important;
-        border: 1px solid #e2e8f0 !important;
+        height: 72px !important;
+        padding: 6px 8px !important;
+        border-radius: 14px !important;
+        border: 1px solid #f0f0f0 !important;
         background-color: #ffffff !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
+        position: relative !important;
     }
     div[data-testid="column"] button:hover {
-        border-color: #3182ce !important;
-        background-color: #f7fafc !important;
+        border-color: #e0e0e0 !important;
+        background-color: #fafafa !important;
     }
-    /* 日期數字 */
-    .cal-num {
-        font-size: 14px;
-        font-weight: bold;
-        color: #2d3748;
-        margin-left: 4px;
-        margin-top: 2px;
-    }
-    /* 行程粉紅圓角標籤 */
-    .cal-tag {
-        background-color: #fff0f0;
-        color: #e53e3e;
-        font-size: 11px;
-        padding: 2px 5px;
-        border-radius: 6px;
-        margin-top: 2px;
-        width: 90%;
-        text-align: left;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        display: inline-block;
+    
+    /* 按鈕內文樣式重寫 */
+    div[data-testid="column"] button p {
+        width: 100% !important;
+        text-align: left !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -319,7 +302,7 @@ with tab_cal:
     # 渲染星期標頭
     cols_head = st.columns(7)
     for idx, day_name in enumerate(weekdays):
-        cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#4a5568; margin-bottom:8px;'>週{day_name}</div>", unsafe_allow_html=True)
+        cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#666; margin-bottom:8px;'>星期{day_name}</div>", unsafe_allow_html=True)
         
     # 渲染日曆網格
     for week in cal:
@@ -331,25 +314,35 @@ with tab_cal:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
                 day_events = [e for e in events if e.get("date") == day_str]
                 
-                # 構建 HTML 內容
+                # --- 核心改動：透過 HTML 構造圖中的樣式 ---
+                # 左上角數字
+                day_num_html = f'<div style="font-size:16px; font-weight:800; color:#333; line-height:1.2; text-align:left;">{day}</div>'
+                
+                # 下方淡粉紅圓角膠囊標籤
                 tag_html = ""
                 if day_events:
                     first_title = day_events[0]['title']
-                    tag_html = f'<div class="cal-tag">{first_title}</div>'
+                    short_title = first_title[:5] + "..." if len(first_title) > 5 else first_title
+                    tag_html = f'<div style="background-color:#fff0f1; color:#e51c23; font-size:11px; font-weight:600; padding:3px 6px; border-radius:8px; margin-top:6px; display:inline-block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{short_title}</div>'
+                else:
+                    tag_html = '<div style="height:21px; margin-top:6px;"></div>' # 沒行程時保持卡片高度一致
                 
-                btn_content = f'<div class="cal-num">{day}</div>{tag_html}'
+                # 組合 HTML 卡片內容
+                card_content = f'{day_num_html}{tag_html}'
                 
-                # 使用原生 button 結合 HTML 渲染
-                if cols[idx].button(f"{day}", key=f"btn_cal_{day_str}", use_container_width=True):
-                    show_event_dialog(day_str)
-                
-                # 覆蓋按鈕內部的視覺層 (使用 CSS/Markdown 漂亮顯示)
-                # 透過這行讓按鈕呈現精美的「數字 + 下方獨立標籤」
-                cols[idx].markdown(f"""
-                <script>
-                // 修正 DOM 按鈕顯示
-                </script>
-                """, unsafe_allow_html=True)
+                # 渲染為可點擊按鈕
+                with cols[idx]:
+                    # 提示：Streamlit 1.30+ 的 st.markdown 配合 click 監聽或原生按鈕
+                    if st.button(f"{day}", key=f"btn_cal_{day_str}", use_container_width=True):
+                        show_event_dialog(day_str)
+                    
+                    # 用相對定位把 HTML 疊在按鈕上面視覺呈現
+                    st.markdown(f"""
+                    <div onclick="document.querySelectorAll('button[key=btn_cal_{day_str}]')[0].click()" 
+                         style="margin-top: -72px; height: 72px; padding: 6px 8px; border-radius: 14px; background: white; border: 1px solid #ececec; cursor: pointer; pointer-events: none; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                        {card_content}
+                    </div>
+                    """, unsafe_allow_html=True)
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
