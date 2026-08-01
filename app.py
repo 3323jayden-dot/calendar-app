@@ -8,14 +8,18 @@ import hashlib
 import urllib.parse
 import requests
 
-# ----------------- 0. 網頁基本設定 & GitHub Favicon -----------------
+# ----------------- 0. 系統超級管理員設定 -----------------
+# 💡 請將此處改為您的管理員 Email 帳號
+ADMIN_EMAIL = "admin@example.com"
+
+# ----------------- 網頁基本設定 & GitHub Favicon -----------------
 st.set_page_config(
     page_title="多功能共享線上行事曆",
     page_icon="https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg",
     layout="centered"
 )
 
-# ----------------- PWA 安裝與 Manifest 注入 (動態帶入當前使用者 Token) -----------------
+# ----------------- PWA 安裝與 Manifest 注入 -----------------
 pwa_html = """
 <script>
 (function() {
@@ -100,7 +104,6 @@ def save_json(filepath, data):
 def generate_token(email, salt):
     return hashlib.sha256(f"{email}_{salt}_calendar_secret".encode()).hexdigest()[:16]
 
-# 生成唯一的 6 位數字邀請碼
 def generate_digit_code(existing_keys):
     while True:
         code = str(random.randint(100000, 999999))
@@ -156,7 +159,6 @@ def get_google_user_info(auth_code):
 
 current_user_email = None
 
-# A. 處理 Google 授權成功回傳
 if "code" in query_params:
     auth_code = query_params["code"]
     user_info = get_google_user_info(auth_code)
@@ -184,7 +186,6 @@ if "code" in query_params:
         st.query_params["token"] = token
         st.rerun()
 
-# B. 檢查網址列 Token 自動驗證
 url_user = query_params.get("user")
 url_token = query_params.get("token")
 
@@ -301,7 +302,10 @@ with st.sidebar:
     user_pic = user_data.get("picture", "")
     if user_pic:
         st.image(user_pic, width=50)
-    st.write(f"👤 **{user_data.get('name', current_user_email)}**")
+    
+    # 若為管理員顯示專屬標籤
+    admin_badge = " 👑 (系統管理員)" if current_user_email == ADMIN_EMAIL else ""
+    st.write(f"👤 **{user_data.get('name', current_user_email)}**{admin_badge}")
     st.caption(current_user_email)
     
     if st.button("🚪 登出系統", use_container_width=True):
@@ -309,7 +313,61 @@ with st.sidebar:
         st.rerun()
         
     st.divider()
-    
+
+    # 👑 超級管理員專屬後台區塊
+    if current_user_email == ADMIN_EMAIL:
+        with st.expander("🛡️ 系統後台管理 (Admin Only)"):
+            st.warning("您是最高權限管理員，可編輯或管理所有人。")
+            
+            target_user = st.selectbox("選擇要管理的帳號：", list(users.keys()), key="admin_user_select")
+            if target_user:
+                t_data = users[target_user]
+                if isinstance(t_data, dict):
+                    t_name = t_data.get("name", "")
+                    t_pwd = t_data.get("password", "")
+                else:
+                    t_name = target_user.split("@")[0]
+                    t_pwd = t_data
+                
+                edit_name = st.text_input("修改暱稱", value=t_name, key="admin_edit_name")
+                edit_pwd = st.text_input("修改密碼", value=t_pwd, key="admin_edit_pwd")
+                
+                col_save_u, col_del_u = st.columns(2)
+                with col_save_u:
+                    if st.button("💾 更新資料", key="admin_save_btn", use_container_width=True):
+                        if isinstance(users[target_user], dict):
+                            users[target_user]["name"] = edit_name.strip()
+                            users[target_user]["password"] = edit_pwd.strip()
+                        else:
+                            users[target_user] = {
+                                "name": edit_name.strip(),
+                                "password": edit_pwd.strip(),
+                                "categories": DEFAULT_CATEGORIES.copy()
+                            }
+                        save_json(USER_FILE, users)
+                        st.success("使用者資料已更新！")
+                        st.rerun()
+                        
+                with col_del_u:
+                    if target_user != ADMIN_EMAIL:
+                        if st.button("🗑️ 刪除帳號", key="admin_del_btn", use_container_width=True):
+                            # 1. 刪除使用者
+                            del users[target_user]
+                            save_json(USER_FILE, users)
+                            
+                            # 2. 清理個人日曆
+                            p_id = f"personal_{target_user}"
+                            if p_id in all_calendars:
+                                del all_calendars[p_id]
+                                save_json(CALENDARS_FILE, all_calendars)
+                                
+                            st.success(f"已刪除帳號 {target_user}")
+                            st.rerun()
+                    else:
+                        st.caption("⚠️ 無法刪除自己")
+
+        st.divider()
+
     # 區塊 1: 帳戶偏好設定
     with st.expander("⚙️ 帳戶偏好設定"):
         new_nickname = st.text_input("更改顯示暱稱", value=user_data.get("name", ""))
@@ -386,7 +444,6 @@ with st.sidebar:
         format_func=lambda x: user_accessible_cals[x]
     )
     
-    # 顯示當前選取共享日曆的「數字邀請碼」
     if not selected_cal_id.startswith("personal_"):
         st.info(f"🔑 本日曆邀請碼：`{selected_cal_id}`")
     
@@ -402,7 +459,6 @@ with st.sidebar:
             else:
                 st.error("日曆名稱不能為空白！")
         
-        # 刪除共享日曆 (保護個人預設日曆不可被刪除)
         if not selected_cal_id.startswith("personal_"):
             st.markdown("---")
             st.markdown("<span style='color:red;'>⚠️ 刪除區域</span>", unsafe_allow_html=True)
@@ -416,7 +472,6 @@ with st.sidebar:
         new_cal_name = st.text_input("建立新共用日曆", placeholder="例：專案討論組")
         if st.button("建立"):
             if new_cal_name.strip():
-                # 生成 6 位純數字邀請碼
                 new_id = generate_digit_code(all_calendars.keys())
                 all_calendars[new_id] = {
                     "name": f"👥 {new_cal_name.strip()}",
@@ -466,7 +521,6 @@ def manage_events_dialog(date_str):
                 })
                 save_json(CALENDARS_FILE, all_calendars)
                 
-                # 發送 Web Notification 網頁通知
                 if send_notify:
                     notify_js = f"""
                     <script>
@@ -518,16 +572,14 @@ def manage_events_dialog(date_str):
                     st.query_params.pop("selected_date", None)
                     st.rerun()
 
-# ----------------- 6. 主日曆導覽列 (使用 Callback 徹底解決跳月與卡住問題) -----------------
+# ----------------- 6. 主日曆導覽列 -----------------
 today = datetime.date.today()
 
-# 初始化 session state 年月
 if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
 
-# 定義 Callback 變更函式 (確保只觸發一次，且不卡住)
 def change_month(delta):
     new_month = st.session_state.current_month + delta
     if new_month > 12:
@@ -551,7 +603,6 @@ def on_month_change():
 
 st.title(f"{current_cal_data['name']}")
 
-# 頂部導覽控制區
 col_prev, col_year, col_month, col_today, col_next = st.columns([1.2, 2, 2, 1.5, 1.2])
 
 with col_prev:
@@ -585,17 +636,15 @@ with col_next:
     st.write("") 
     st.button("下個月 ＞", key="btn_next_month", use_container_width=True, on_click=change_month, args=(1,))
 
-# 顯示當前年月大標題
 st.markdown(
     f"<h3 style='text-align: center; margin: 10px 0;'>🗓️ {st.session_state.current_year} 年 {st.session_state.current_month} 月</h3>", 
     unsafe_allow_html=True
 )
 
-# 定義連結字串前綴
 base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
 link_prefix = f"?{base_url_params}&" if base_url_params else "?"
 
-# ----------------- 7. 繪製 HTML 月曆 (純靜態，穩定無重複) -----------------
+# ----------------- 7. 繪製 HTML 月曆 -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
 
@@ -698,7 +747,6 @@ for week in month_days:
 html_code += "</tbody></table>"
 st.markdown(html_code, unsafe_allow_html=True)
 
-# 偵測點擊事件彈窗
 selected_date_param = query_params.get("selected_date")
 if selected_date_param:
     manage_events_dialog(selected_date_param)
