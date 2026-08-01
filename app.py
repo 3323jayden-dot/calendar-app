@@ -198,7 +198,7 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格與行程管理 (點擊日期直接跳出彈窗對話框)
+# TAB 1: 📅 視覺化日曆網格（標籤式行程提醒 + 點擊彈窗）
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -208,12 +208,11 @@ with tab_cal:
 
     today = date.today()
 
-    # 1. 定義跳出的對話框 (st.dialog)
+    # 1. 跳出式的行程管理對話框 (st.dialog)
     @st.dialog("📅 行程安排與管理", width="large")
     def show_event_dialog(selected_date_str):
         st.subheader(f"📌 {selected_date_str} 的行程")
         
-        # 篩選當天行程
         day_events = [e for e in events if e.get("date") == selected_date_str]
         
         if not day_events:
@@ -221,7 +220,7 @@ with tab_cal:
         else:
             for idx, ev in enumerate(day_events):
                 with st.expander(f"📌 {ev['title']} ({ev.get('category', '一般')})", expanded=True):
-                    st.write(f"**備註**：{ev.get('description') if ev.get('description') else '無'}")
+                    st.write(f"**詳細備註**：{ev.get('description') if ev.get('description') else '無'}")
                     st.caption(f"建立者：{ev.get('creator', '未知')}")
                     
                     if st.session_state.logged_in and (st.session_state.user_email == ev.get('creator') or st.session_state.user_email == ADMIN_EMAIL):
@@ -233,7 +232,6 @@ with tab_cal:
 
         st.divider()
         
-        # 彈窗內直接新增行程
         st.markdown("### ➕ 新增當天行程")
         if st.session_state.logged_in:
             with st.form(f"dialog_add_form_{selected_date_str}", clear_on_submit=True):
@@ -269,18 +267,21 @@ with tab_cal:
 
     st.markdown("---")
     
-    # 3. 按鈕排版 CSS 修正
+    # 3. 自訂 CSS：調整按鈕樣式呈現像日曆小卡片
     st.markdown("""
     <style>
     div[data-testid="column"] button {
-        padding: 4px 0px !important;
-        min-height: 52px !important;
+        padding: 4px 2px !important;
+        min-height: 60px !important;
         font-size: 13px !important;
+        line-height: 1.3 !important;
+        white-space: pre-wrap !important;
+        word-break: break-all !important;
     }
     </style>
     """, unsafe_allow_html=True)
     
-    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽（點擊日期跳出行程視窗）")
+    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽（點擊日期跳出詳細行程）")
     
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
@@ -290,7 +291,7 @@ with tab_cal:
     for idx, day_name in enumerate(weekdays):
         cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#555;'>週{day_name}</div>", unsafe_allow_html=True)
         
-    # 渲染日曆格子 (點擊觸發 Dialog 彈窗)
+    # 渲染日曆格子 (顯示文字行程標籤)
     for week in cal:
         cols = st.columns(7)
         for idx, day in enumerate(week):
@@ -300,11 +301,22 @@ with tab_cal:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
                 day_events = [e for e in events if e.get("date") == day_str]
                 
-                btn_label = f"{day}"
+                # 格子預設文字：日期數字
+                btn_label = f"{day}\n"
+                
                 if day_events:
-                    btn_label += f"\n📌({len(day_events)})"
+                    # 抓第一個行程名稱，超過5個字自動顯示 ...
+                    first_title = day_events[0]['title']
+                    short_title = first_title[:5] + "..." if len(first_title) > 5 else first_title
                     
-                # 點擊按鈕直接開啟彈窗
+                    # 呈現格式類似 [ 英文考K... ]
+                    btn_label += f"🟥 {short_title}"
+                    
+                    # 如果當天有多個行程，標註 +N
+                    if len(day_events) > 1:
+                        btn_label += f" (+{len(day_events)-1})"
+                
+                # 點擊日期格子觸發跳出視窗
                 if cols[idx].button(btn_label, key=f"btn_cal_{day_str}", use_container_width=True):
                     show_event_dialog(day_str)
 # ------------------------------------------------------------------------------
