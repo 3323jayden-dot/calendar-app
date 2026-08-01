@@ -200,7 +200,7 @@ else:
         st.rerun()
 
 # 🛡️ 管理員專屬後台 (查看/修改所有帳號密碼)
-if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
+if st.session_state.logged_in and st.session_state.user_email == 3323jayden@gmail.com:
     st.sidebar.divider()
     with st.sidebar.expander("🛡️ 系統後台管理 (Admin Only)", expanded=False):
         st.markdown("**管理員帳號控制台**")
@@ -246,7 +246,7 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 import streamlit.components.v1 as components
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格（HTML/CSS 完美 7 欄不跑版 + 邀請碼共享月曆）
+# TAB 1: 📅 視覺化日曆網格（7 欄完美不跑版 + 支援直接點擊日期彈窗）
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -373,107 +373,53 @@ with tab_cal:
         else:
             st.info("🔒 請於側邊欄登入帳號後進行行程新增。")
 
-    # --- 5. 點擊日期的觸發區域 ---
-    # 下拉選擇點擊的日期以開啟對話框
-    st.markdown("---")
-    
-    # 建立純 CSS/HTML 月曆 (CSS Grid 強制 7 欄，絕不上下排)
+    # --- 5. 注入 CSS：強制 7 欄橫排並縮小邊距 ---
+    st.markdown("""
+        <style>
+        /* 強制按鈕容器保持 7 欄平行橫排，不自動換行 */
+        div[data-testid="column"] {
+            min-width: 0px !important;
+            flex: 1 1 0px !important;
+        }
+        /* 美化日曆按鈕樣式 */
+        div[data-testid="stHorizontalBlock"] button {
+            height: 70px !important;
+            padding: 2px !important;
+            font-size: 14px !important;
+            white-space: pre-wrap !important;
+            line-height: 1.2 !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # --- 6. 渲染日曆標頭 ---
     cal = calendar.monthcalendar(sel_year, sel_month)
-    weekdays = ["一", "二", "三", "四", "五", "六", "日"]
+    weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     
-    html_code = """
-    <style>
-        .cal-container {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 8px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            width: 100%;
-        }
-        .cal-header {
-            text-align: center;
-            font-weight: bold;
-            color: #718096;
-            padding: 4px 0;
-            font-size: 14px;
-        }
-        .cal-day {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            height: 70px;
-            padding: 6px;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-            align-items: flex-start;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-        }
-        .cal-day-empty {
-            background: transparent;
-            border: none;
-            height: 70px;
-        }
-        .day-num {
-            font-size: 15px;
-            font-weight: 800;
-            color: #2d3748;
-        }
-        .tag-pink {
-            background-color: #ffebee;
-            color: #e53935;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 2px 6px;
-            border-radius: 8px;
-            margin-top: 4px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 90%;
-        }
-    </style>
-    <div class="cal-container">
-    """
-    
-    # 星期標頭
-    for w in weekdays:
-        html_code += f'<div class="cal-header">星期{w}</div>'
-        
-    # 日期網格
+    header_cols = st.columns(7)
+    for idx, w in enumerate(weekdays):
+        header_cols[idx].markdown(f"<p style='text-align: center; font-weight: bold; color: #555;'>{w}</p>", unsafe_allow_html=True)
+
+    # --- 7. 渲染日曆日期（可直接點擊）---
     for week in cal:
-        for day in week:
+        cols = st.columns(7)
+        for idx, day in enumerate(week):
             if day == 0:
-                html_code += '<div class="cal-day-empty"></div>'
+                cols[idx].empty()
             else:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
                 day_events = [e for e in active_events if e.get("date") == day_str]
                 
-                tag_html = ""
+                # 組裝按鈕內部標籤（包含日期號碼與粉紅膠囊狀態）
+                btn_label = f"{day}\n"
                 if day_events:
-                    first_title = day_events[0]['title']
-                    short_title = first_title[:5] + "..." if len(first_title) > 5 else first_title
-                    tag_html = f'<div class="tag-pink">{short_title}</div>'
-                
-                html_code += f'''
-                <div class="cal-day">
-                    <div class="day-num">{day}</div>
-                    {tag_html}
-                </div>
-                '''
-                
-    html_code += "</div>"
-    
-    # 渲染 HTML 月曆
-    components.html(html_code, height=520, scrolling=False)
-    
-    # 日期選擇觸發行程
-    st.markdown("👇 **點選下方日期查看或新增詳細行程：**")
-    all_days = [f"{sel_year}-{sel_month:02d}-{d:02d}" for week in cal for d in week if d != 0]
-    chosen_date = st.selectbox("選擇日期檢視", all_days, label_visibility="collapsed")
-    if st.button("📌 查看該日行程", use_container_width=True):
-        show_event_dialog(chosen_date)
+                    title = day_events[0]['title']
+                    short_title = title[:4] + ".." if len(title) > 4 else title
+                    btn_label += f"📌{short_title}"
+
+                # 點擊按鈕直接開啟彈窗
+                if cols[idx].button(btn_label, key=f"btn_{day_str}", use_container_width=True):
+                    show_event_dialog(day_str)
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
