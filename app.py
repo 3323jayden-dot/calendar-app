@@ -17,39 +17,7 @@ if "user" in query_params and not st.session_state.logged_in:
         st.session_state.logged_in = True
         st.session_state.user_email = saved_user
 
-# ------------------------------------------------------------------------------
-# 2. 側邊欄帳號管理
-# ------------------------------------------------------------------------------
-with st.sidebar:
-    st.title("👤 帳號管理")
-    
-    if st.session_state.logged_in:
-        st.success(f"目前登入帳號：\n**{st.session_state.user_email}**")
-        st.caption("💡 系統已自動記住您的登入狀態，下次開啟此網址免重新登入！")
-        
-        # 登出按鈕：清除 session 並移除網址參數
-        if st.button("🚪 登出系統", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.user_email = ""
-            st.query_params.clear()  # 清除網址上的 user 參數
-            st.rerun()
-            
-    else:
-        st.subheader("🔑 帳號登入")
-        input_email = st.text_input("請輸入 Email 帳號", placeholder="example@gmail.com")
-        
-        if st.button("🚀 登入並記住我", use_container_width=True):
-            if input_email.strip():
-                clean_email = input_email.strip()
-                st.session_state.logged_in = True
-                st.session_state.user_email = clean_email
-                
-                # 將 user 寫入網址參數，達到永久保持登入效果
-                st.query_params["user"] = clean_email
-                st.success("登入成功！已為您記住登入狀態。")
-                st.rerun()
-            else:
-                st.error("請輸入有效的 Email！")
+
 
 
 
