@@ -421,8 +421,7 @@ def manage_events_dialog(date_str):
                     st.query_params.pop("selected_date", None)
                     st.rerun()
 
-# ----------------- 6. 主日曆導覽列 -----------------
-# ----------------- 6. 主日曆導覽列 (修復跳月與時間範圍問題) -----------------
+# ----------------- 6. 主日曆導覽列 (純原生控制，徹底解決跳月問題) -----------------
 today = datetime.date.today()
 
 # 初始化 session state 年月
@@ -431,97 +430,66 @@ if "current_year" not in st.session_state:
 if "current_month" not in st.session_state:
     st.session_state.current_month = today.month
 
-# 處理 URL 傳參的切換邏輯，並確保用 pop 正確清除
-nav_action = st.query_params.get("nav")
-if nav_action:
-    if nav_action == "prev":
+st.title(f"{current_cal_data['name']}")
+
+# --- 頂部導覽控制區 ---
+col_prev, col_year, col_month, col_today, col_next = st.columns([1.2, 2, 2, 1.5, 1.2])
+
+with col_prev:
+    st.write("") # 垂直對齊用
+    if st.button("＜ 上個月", key="btn_prev_month", use_container_width=True):
         if st.session_state.current_month == 1:
             st.session_state.current_month = 12
             st.session_state.current_year -= 1
         else:
             st.session_state.current_month -= 1
-    elif nav_action == "today":
+        st.rerun()
+
+with col_year:
+    year_options = list(range(today.year - 10, today.year + 11))
+    sel_y = st.selectbox(
+        "年份", 
+        year_options, 
+        index=year_options.index(st.session_state.current_year),
+        key="select_year_bar"
+    )
+    if sel_y != st.session_state.current_year:
+        st.session_state.current_year = sel_y
+        st.rerun()
+
+with col_month:
+    sel_m = st.selectbox(
+        "月份", 
+        list(range(1, 13)), 
+        index=st.session_state.current_month - 1,
+        key="select_month_bar"
+    )
+    if sel_m != st.session_state.current_month:
+        st.session_state.current_month = sel_m
+        st.rerun()
+
+with col_today:
+    st.write("") # 垂直對齊用
+    if st.button("今天", key="btn_go_today", use_container_width=True):
         st.session_state.current_year = today.year
         st.session_state.current_month = today.month
-    elif nav_action == "next":
+        st.rerun()
+
+with col_next:
+    st.write("") # 垂直對齊用
+    if st.button("下個月 ＞", key="btn_next_month", use_container_width=True):
         if st.session_state.current_month == 12:
             st.session_state.current_month = 1
             st.session_state.current_year += 1
         else:
             st.session_state.current_month += 1
-            
-    # 清除 nav 參數防止重複跳月，並重新載入
-    del st.query_params["nav"]
-    st.rerun()
-
-st.title(f"{current_cal_data['name']}")
-
-# 🆕 新增：快速年份與月份選單（解決無法看更久以後的問題）
-col_y, col_m, col_btn = st.columns([2, 2, 1])
-with col_y:
-    # 支援前後 10 年（也可自行放大範圍）
-    year_options = list(range(today.year - 5, today.year + 10))
-    selected_year = st.selectbox("年份", year_options, index=year_options.index(st.session_state.current_year), key="select_year_bar")
-    if selected_year != st.session_state.current_year:
-        st.session_state.current_year = selected_year
         st.rerun()
 
-with col_m:
-    selected_month = st.selectbox("月份", list(range(1, 13)), index=st.session_state.current_month - 1, key="select_month_bar")
-    if selected_month != st.session_state.current_month:
-        st.session_state.current_month = selected_month
-        st.rerun()
-
-with col_btn:
-    st.write("") # 垂直置中用
-    if st.button("回今天", use_container_width=True):
-        st.session_state.current_year = today.year
-        st.session_state.current_month = today.month
-        st.rerun()
-
-# 導覽箭頭連結生成
-base_url_params = f"user={url_user}&token={url_token}" if url_user and url_token else ""
-link_prefix = f"?{base_url_params}&" if base_url_params else "?"
-
-nav_html = f"""
-<style>
-.nav-container {{
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    width: 100% !important;
-    margin: 10px 0 !important;
-    gap: 5px !important;
-}}
-.nav-btn {{
-    display: inline-block;
-    padding: 6px 16px;
-    background-color: #f0f2f6;
-    color: #31333F;
-    border-radius: 8px;
-    text-decoration: none;
-    font-size: 14px;
-    font-weight: bold;
-    text-align: center;
-    border: 1px solid #d6d8db;
-    white-space: nowrap;
-}}
-.nav-title {{
-    font-size: 18px;
-    font-weight: bold;
-    color: #111;
-    white-space: nowrap;
-}}
-</style>
-
-<div class="nav-container">
-    <a href="{link_prefix}nav=prev" class="nav-btn" target="_self">＜ 上一個月</a>
-    <span class="nav-title">🗓️ {st.session_state.current_year} 年 {st.session_state.current_month} 月</span>
-    <a href="{link_prefix}nav=next" class="nav-btn" target="_self">下一個月 ＞</a>
-</div>
-"""
-st.markdown(nav_html, unsafe_allow_html=True)
+# 顯示當前年月大標題
+st.markdown(
+    f"<h3 style='text-align: center; margin: 10px 0;'>🗓️ {st.session_state.current_year} 年 {st.session_state.current_month} 月</h3>", 
+    unsafe_allow_html=True
+)
 # ----------------- 7. 繪製 HTML 月曆 -----------------
 cal = calendar.Calendar(firstweekday=6)
 month_days = cal.monthdayscalendar(st.session_state.current_year, st.session_state.current_month)
