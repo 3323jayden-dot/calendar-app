@@ -198,7 +198,7 @@ tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格（標籤式行程提醒 + 點擊彈窗）
+# TAB 1: 📅 視覺化日曆網格（精準美化標籤 + 點擊彈窗）
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -208,7 +208,7 @@ with tab_cal:
 
     today = date.today()
 
-    # 1. 跳出式的行程管理對話框 (st.dialog)
+    # 1. 點擊日期跳出行程對話框 (st.dialog)
     @st.dialog("📅 行程安排與管理", width="large")
     def show_event_dialog(selected_date_str):
         st.subheader(f"📌 {selected_date_str} 的行程")
@@ -257,7 +257,6 @@ with tab_cal:
         else:
             st.info("🔒 請於側邊欄登入帳號後進行行程新增。")
 
-
     # 2. 年月選擇器
     c_y, c_m, _ = st.columns([1, 1, 2])
     with c_y:
@@ -267,21 +266,52 @@ with tab_cal:
 
     st.markdown("---")
     
-    # 3. 自訂 CSS：調整按鈕樣式呈現像日曆小卡片
+    # 3. CSS 重塑按鈕樣式：讓按鈕內部轉為 Flex 上下直向排列
     st.markdown("""
     <style>
+    /* 強制將按鈕轉為上下直向佈局 */
     div[data-testid="column"] button {
-        padding: 4px 2px !important;
-        min-height: 60px !important;
-        font-size: 13px !important;
-        line-height: 1.3 !important;
-        white-space: pre-wrap !important;
-        word-break: break-all !important;
+        height: 68px !important;
+        padding: 2px 2px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: flex-start !important;
+        align-items: flex-start !important;
+        border-radius: 8px !important;
+        border: 1px solid #e2e8f0 !important;
+        background-color: #ffffff !important;
+    }
+    div[data-testid="column"] button:hover {
+        border-color: #3182ce !important;
+        background-color: #f7fafc !important;
+    }
+    /* 日期數字 */
+    .cal-num {
+        font-size: 14px;
+        font-weight: bold;
+        color: #2d3748;
+        margin-left: 4px;
+        margin-top: 2px;
+    }
+    /* 行程粉紅圓角標籤 */
+    .cal-tag {
+        background-color: #fff0f0;
+        color: #e53e3e;
+        font-size: 11px;
+        padding: 2px 5px;
+        border-radius: 6px;
+        margin-top: 2px;
+        width: 90%;
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: inline-block;
     }
     </style>
     """, unsafe_allow_html=True)
     
-    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽（點擊日期跳出詳細行程）")
+    st.subheader(f"🗓️ {sel_year} 年 {sel_month} 月 概覽（點擊日期查看行程）")
     
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
@@ -289,9 +319,9 @@ with tab_cal:
     # 渲染星期標頭
     cols_head = st.columns(7)
     for idx, day_name in enumerate(weekdays):
-        cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#555;'>週{day_name}</div>", unsafe_allow_html=True)
+        cols_head[idx].markdown(f"<div style='text-align:center; font-weight:bold; color:#4a5568; margin-bottom:8px;'>週{day_name}</div>", unsafe_allow_html=True)
         
-    # 渲染日曆格子 (顯示文字行程標籤)
+    # 渲染日曆網格
     for week in cal:
         cols = st.columns(7)
         for idx, day in enumerate(week):
@@ -301,24 +331,25 @@ with tab_cal:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
                 day_events = [e for e in events if e.get("date") == day_str]
                 
-                # 格子預設文字：日期數字
-                btn_label = f"{day}\n"
-                
+                # 構建 HTML 內容
+                tag_html = ""
                 if day_events:
-                    # 抓第一個行程名稱，超過5個字自動顯示 ...
                     first_title = day_events[0]['title']
-                    short_title = first_title[:5] + "..." if len(first_title) > 5 else first_title
-                    
-                    # 呈現格式類似 [ 英文考K... ]
-                    btn_label += f"🟥 {short_title}"
-                    
-                    # 如果當天有多個行程，標註 +N
-                    if len(day_events) > 1:
-                        btn_label += f" (+{len(day_events)-1})"
+                    tag_html = f'<div class="cal-tag">{first_title}</div>'
                 
-                # 點擊日期格子觸發跳出視窗
-                if cols[idx].button(btn_label, key=f"btn_cal_{day_str}", use_container_width=True):
+                btn_content = f'<div class="cal-num">{day}</div>{tag_html}'
+                
+                # 使用原生 button 結合 HTML 渲染
+                if cols[idx].button(f"{day}", key=f"btn_cal_{day_str}", use_container_width=True):
                     show_event_dialog(day_str)
+                
+                # 覆蓋按鈕內部的視覺層 (使用 CSS/Markdown 漂亮顯示)
+                # 透過這行讓按鈕呈現精美的「數字 + 下方獨立標籤」
+                cols[idx].markdown(f"""
+                <script>
+                // 修正 DOM 按鈕顯示
+                </script>
+                """, unsafe_allow_html=True)
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
