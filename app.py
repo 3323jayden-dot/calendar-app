@@ -19,10 +19,12 @@ USER_FILE = "users.json"
 CALENDARS_FILE = "shared_calendars.json"
 
 DEFAULT_CATEGORIES = {
-    "工作": {"bg": "#FFF0F0", "text": "#E53935", "icon": "💻"},
-    "出遊": {"bg": "#FFFDE7", "text": "#FB8C00", "icon": "📄"},
+    "考試": {"bg": "#FFF0F0", "text": "#E53935", "icon": "📖"},
+    "作業": {"bg": "#FFFDE7", "text": "#FB8C00", "icon": "📄"},
     "練習": {"bg": "#E8F5E9", "text": "#2E7D32", "icon": "🏋️"},
     "備忘": {"bg": "#E3F2FD", "text": "#1E88E5", "icon": "✏️"},
+    "批改": {"bg": "#F3E5F5", "text": "#8E24AA", "icon": "📝"},
+    "出題": {"bg": "#E0F7FA", "text": "#0288D1", "icon": "📋"},
     "行政": {"bg": "#F5F5F5", "text": "#616161", "icon": "📁"},
 }
 
@@ -50,14 +52,12 @@ all_calendars = load_json(CALENDARS_FILE, {})
 # ----------------- 1. Google OAuth 安全讀取 -----------------
 query_params = st.query_params
 
-# 從 Streamlit Secrets 讀取敏感資訊（不寫死在程式碼中）
 google_secrets = st.secrets.get("google", {})
 CLIENT_ID = google_secrets.get("client_id", "")
 CLIENT_SECRET = google_secrets.get("client_secret", "")
 REDIRECT_URI = google_secrets.get("redirect_uri", "https://calendar-app-1.streamlit.app/")
 
 def get_google_auth_url():
-    # 補全包含 Google Calendar 的完整 Scope
     scopes = [
         "https://www.googleapis.com/auth/userinfo.email",
         "https://www.googleapis.com/auth/userinfo.profile",
@@ -95,7 +95,7 @@ def get_google_user_info(auth_code):
 
 current_user_email = None
 
-# A. 處理從 Google 授權成功回傳
+# A. 處理 Google 授權成功回傳
 if "code" in query_params:
     auth_code = query_params["code"]
     user_info = get_google_user_info(auth_code)
@@ -107,12 +107,12 @@ if "code" in query_params:
         if email not in users:
             users[email] = {
                 "name": name,
-                "password": "", # Google 登入無需密碼
+                "password": "",
                 "picture": picture,
                 "categories": DEFAULT_CATEGORIES.copy()
             }
         else:
-            if isinstance(users[email], str): # 自動相容舊格式
+            if isinstance(users[email], str):
                 users[email] = {"name": email.split("@")[0], "password": users[email], "categories": DEFAULT_CATEGORIES.copy()}
             users[email]["picture"] = picture
         save_json(USER_FILE, users)
@@ -128,23 +128,20 @@ url_user = query_params.get("user")
 url_token = query_params.get("token")
 
 if url_user and url_token and url_user in users:
-    # 先安全取得密碼/字串
     u_data = users[url_user]
     user_pwd = u_data.get("password", "") if isinstance(u_data, dict) else u_data
     
-    # 判斷是傳統密碼 Token 還是 Google Token
     expected_token_normal = generate_token(url_user, user_pwd)
     expected_token_google = generate_token(url_user, "google_login")
     
     if url_token in (expected_token_normal, expected_token_google):
         current_user_email = url_user
 
-# ----------------- 2. 未登入：提供「Google 快捷登入」+「傳統帳密 / 註冊」 -----------------
+# ----------------- 2. 未登入介面 -----------------
 if not current_user_email:
     st.title("🗓️ 共享線上行事曆")
     st.caption("請登入您的帳號以使用完整功能。")
     
-    # 捷徑 A: Google 一鍵登入
     if CLIENT_ID and CLIENT_SECRET:
         auth_url = get_google_auth_url()
         google_btn_html = f"""
@@ -164,14 +161,13 @@ if not current_user_email:
                 box-shadow: 0 1px 3px rgba(0,0,0,0.08);
             ">
                 <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" style="width:18px; height:18px; margin-right:10px;">
-                使用 Google 帳號快速登入 / 註冊<<目前開發中>>
+                使用 Google 帳號快速登入 / 註冊
             </a>
         </div>
         """
         st.markdown(google_btn_html, unsafe_allow_html=True)
         st.markdown("<div style='text-align:center; color:#888; font-size:12px;'>—— 或使用傳統帳號密碼 ——</div>", unsafe_allow_html=True)
 
-    # 捷徑 B: 傳統帳密登入 / 註冊
     tab_login, tab_register = st.tabs(["🔑 傳統帳密登入", "📝 註冊新帳號"])
     
     with tab_login:
@@ -219,7 +215,7 @@ if not current_user_email:
                     st.rerun()
     st.stop()
 
-# ----------------- 3. 已登入：初始化個人資料 -----------------
+# ----------------- 3. 已登入：初始化資料 -----------------
 raw_user_data = users[current_user_email]
 if not isinstance(raw_user_data, dict):
     users[current_user_email] = {
@@ -232,7 +228,6 @@ if not isinstance(raw_user_data, dict):
 user_data = users[current_user_email]
 user_categories = user_data.setdefault("categories", DEFAULT_CATEGORIES.copy())
 
-# 個人日曆確認
 personal_cal_id = f"personal_{current_user_email}"
 if personal_cal_id not in all_calendars:
     all_calendars[personal_cal_id] = {
@@ -248,7 +243,7 @@ user_accessible_cals = {
     if current_user_email in cdata.get("members", [])
 }
 
-# ----------------- 4. 左側邊欄 (Sidebar) 選單區 -----------------
+# ----------------- 4. 左側邊欄 (Sidebar) -----------------
 with st.sidebar:
     user_pic = user_data.get("picture", "")
     if user_pic:
@@ -272,8 +267,8 @@ with st.sidebar:
                 st.success("暱稱已成功更新！")
                 st.rerun()
 
-    # 區塊 2: 跨日細節規劃小日曆
-    with st.expander("📝 跨日細節規劃"):
+    # 區塊 2: 跨日細節規劃
+    with st.expander("📝 跨日細節規劃 (幾號至幾號)"):
         st.caption("選取區間快速新增連續行程：")
         date_range = st.date_input(
             "選擇區間",
@@ -328,19 +323,30 @@ with st.sidebar:
                 save_json(USER_FILE, users)
                 st.success(f"已新增分類：{cat_name}")
                 st.rerun()
-                
-        st.caption("已有類別：")
-        st.write(" / ".join(user_categories.keys()))
 
-    # 區塊 4: 日曆切換與共用
+    # 區塊 4: 日曆切換、修改名稱與共用
     st.divider()
-    st.subheader("📅 日曆切換")
+    st.subheader("📅 日曆切換與管理")
     selected_cal_id = st.selectbox(
         "選擇日曆：",
         options=list(user_accessible_cals.keys()),
         format_func=lambda x: user_accessible_cals[x]
     )
     
+    # 🆕 【功能新增】：修改目前日曆名稱
+    with st.expander("✏️ 修改目前日曆名稱"):
+        curr_cal_name = all_calendars[selected_cal_id].get("name", "")
+        new_cal_name_input = st.text_input("新的日曆名稱", value=curr_cal_name, key="edit_cal_name_input")
+        if st.button("💾 儲存日曆名稱", use_container_width=True):
+            if new_cal_name_input.strip():
+                all_calendars[selected_cal_id]["name"] = new_cal_name_input.strip()
+                save_json(CALENDARS_FILE, all_calendars)
+                st.success("日曆名稱已更新！")
+                st.rerun()
+            else:
+                st.error("日曆名稱不能為空白！")
+
+    # 共用與建立功能
     with st.expander("➕ 建立/加入共用日曆"):
         new_cal_name = st.text_input("建立新共用日曆", placeholder="例：專案討論組")
         if st.button("建立"):
@@ -415,7 +421,7 @@ def manage_events_dialog(date_str):
                     st.query_params.pop("selected_date", None)
                     st.rerun()
 
-# ----------------- 6. 主日曆導覽列 (絕不換行) -----------------
+# ----------------- 6. 主日曆導覽列 -----------------
 today = datetime.date.today()
 if "current_year" not in st.session_state:
     st.session_state.current_year = today.year
