@@ -7,6 +7,67 @@ import uuid
 import hashlib
 import urllib.parse
 import requests
+import streamlit as st
+import json
+
+# ----------------- PWA 安裝與 Manifest 注入 -----------------
+pwa_html = """
+<script>
+// 1. 動態建立 manifest.json 描述檔
+const manifest = {
+  "name": "我的雲端行事曆",
+  "short_name": "行事曆",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#007aff",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+};
+
+const stringManifest = JSON.stringify(manifest);
+const blob = new Blob([stringManifest], {type: 'application/json'});
+const manifestURL = URL.createObjectURL(blob);
+let linkTag = document.createElement('link');
+linkTag.rel = 'manifest';
+linkTag.href = manifestURL;
+document.head.appendChild(linkTag);
+
+// 2. 註冊 Service Worker 允許背景運作
+if ('serviceWorker' in navigator) {
+  const swCode = `
+    self.addEventListener('install', (e) => {
+      self.skipWaiting();
+    });
+    self.addEventListener('activate', (e) => {
+      return self.clients.claim();
+    });
+    self.addEventListener('push', (e) => {
+      const data = e.data ? e.data.json() : {};
+      self.registration.showNotification(data.title || "行事曆提醒", {
+        body: data.body || "您有即將到來的行程！",
+        icon: "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg"
+      });
+    });
+  `;
+  const blobSW = new Blob([swCode], {type: 'text/javascript'});
+  const swURL = URL.createObjectURL(blobSW);
+  navigator.serviceWorker.register(swURL).catch(err => console.log('SW register fail:', err));
+}
+</script>
+"""
+
+st.components.v1.html(pwa_html, height=0)
 
 # ----------------- 0. 網頁基本設定 & GitHub Favicon -----------------
 st.set_page_config(
