@@ -240,30 +240,34 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 
 import streamlit.components.v1 as components
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 智囊團（Gemini 風格居中對話 + 懸浮底欄）
+# TAB 0: 🤖 Groq AI 智囊團（獨立對話滾動區，不拉動頁面）
 # ------------------------------------------------------------------------------
 with tab_ai:
     # 1. 初始化對話紀錄
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 2. 注入 CSS：限制寬度居中 + 輸入框固定在螢幕下方
+    # 2. 注入 CSS：打造獨立滾動的對話框
     st.markdown("""
         <style>
-        /* A. 限制整個對話區域寬度居中（Gemini 經典寬度） */
-        .chat-main-wrapper {
-            max-width: 760px;
+        /* A. 獨立聊天滾動容器：固定高度 + 內部滾動 */
+        .chat-scroll-container {
+            max-width: 780px;
             margin: 0 auto;
-            padding-bottom: 120px; /* 留出底部空間給懸浮輸入框 */
+            height: 520px; /* 固定聊天區域高度 */
+            overflow-y: auto; /* 超出時內部滑動 */
+            padding: 10px 20px;
+            border-radius: 12px;
+            scroll-behavior: smooth;
         }
 
-        /* B. 歡迎頁標題 */
+        /* B. 歡迎標題 */
         .welcome-box {
             text-align: center;
-            padding: 60px 20px 30px 20px;
+            padding: 80px 20px 20px 20px;
         }
         .welcome-title {
-            font-size: 36px;
+            font-size: 34px;
             font-weight: 700;
             background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853);
             -webkit-background-clip: text;
@@ -272,23 +276,23 @@ with tab_ai:
         }
         .welcome-sub {
             color: #5f6368;
-            font-size: 16px;
+            font-size: 15px;
         }
 
         /* C. 右側使用者灰色氣泡 */
         .user-bubble-container {
             display: flex;
             justify-content: flex-end;
-            margin-bottom: 20px;
+            margin-bottom: 18px;
         }
         .user-bubble {
             background-color: #f1f3f4;
             color: #202124;
-            padding: 12px 20px;
-            border-radius: 24px 24px 4px 24px;
-            max-width: 80%;
+            padding: 10px 18px;
+            border-radius: 20px 20px 4px 20px;
+            max-width: 75%;
             font-size: 15px;
-            line-height: 1.6;
+            line-height: 1.5;
             word-break: break-word;
         }
 
@@ -296,31 +300,19 @@ with tab_ai:
         .ai-bubble-container {
             display: flex;
             justify-content: flex-start;
-            margin-bottom: 28px;
+            margin-bottom: 24px;
         }
         .ai-bubble {
             color: #1f1f1f;
             width: 100%;
             font-size: 15px;
-            line-height: 1.7;
+            line-height: 1.6;
             word-break: break-word;
-        }
-
-        /* E. 🔥 強制把 Streamlit 輸入框懸浮固定在畫面正下方 */
-        .stChatInputContainer {
-            position: fixed !important;
-            bottom: 20px !important;
-            left: 50% !important;
-            transform: translateX(-50%) !important;
-            max-width: 760px !important;
-            width: 90% !important;
-            z-index: 99999 !important;
-            background: white !important;
         }
         </style>
     """, unsafe_allow_html=True)
 
-    # 3. 頂部控制按鈕 (重置按鈕)
+    # 3. 頂部控制區 (重置按鈕)
     if st.session_state.messages:
         c_space, c_reset = st.columns([5, 1])
         with c_reset:
@@ -328,36 +320,37 @@ with tab_ai:
                 st.session_state.messages = []
                 st.rerun()
 
-    # 4. 開始居中包裹區塊
-    st.markdown('<div class="chat-main-wrapper">', unsafe_allow_html=True)
+    # 4. 對話歷史區域（包在獨立滾動容器裡面）
+    chat_html = ['<div class="chat-scroll-container" id="chat-box">']
 
-    # 歡迎畫面
     if not st.session_state.messages:
-        st.markdown("""
+        chat_html.append("""
             <div class="welcome-box">
                 <div class="welcome-title">Jayden，儘管發問吧！</div>
                 <div class="welcome-sub">我可以幫你規劃行程、撰寫文案或解答各種問題</div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
+    else:
+        for msg in st.session_state.messages:
+            if msg["role"] == "user":
+                chat_html.append(f"""
+                    <div class="user-bubble-container">
+                        <div class="user-bubble">{msg['content']}</div>
+                    </div>
+                """)
+            else:
+                chat_html.append(f"""
+                    <div class="ai-bubble-container">
+                        <div class="ai-bubble">{msg['content']}</div>
+                    </div>
+                """)
 
-    # 渲染歷史對話
-    for msg in st.session_state.messages:
-        if msg["role"] == "user":
-            st.markdown(f"""
-                <div class="user-bubble-container">
-                    <div class="user-bubble">{msg['content']}</div>
-                </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-                <div class="ai-bubble-container">
-                    <div class="ai-bubble">{msg['content']}</div>
-                </div>
-            """, unsafe_allow_html=True)
+    chat_html.append('</div>')
+    
+    # 渲染對話視窗
+    st.markdown("".join(chat_html), unsafe_allow_html=True)
 
-    st.markdown('</div>', unsafe_allow_html=True) # 結束包裹區塊
-
-    # 5. 底部輸入框
+    # 5. 原生輸入框（固定在容器下方，完全不影響頁面佈局）
     if prompt := st.chat_input("問問 AI 助手..."):
         if "GROQ_API_KEY" not in st.secrets or not st.secrets["GROQ_API_KEY"]:
             st.error("⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`，請先至後台設定。")
@@ -365,7 +358,7 @@ with tab_ai:
             st.session_state.messages.append({"role": "user", "content": prompt})
             st.rerun()
 
-    # 6. AI 回覆邏輯
+    # 6. AI 回覆處理
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
         with st.spinner("AI 思考中..."):
             try:
@@ -392,16 +385,16 @@ with tab_ai:
             except Exception as e:
                 st.error(f"❌ 發生錯誤：{e}")
 
-    # 7. 強制滑動到底部
+    # 7. 🚀 只滾動中間的對話框 (#chat-box)，不拉動整個網頁頁面！
     if st.session_state.messages:
         st.components.v1.html(
             """
             <script>
                 setTimeout(function() {
-                    window.parent.scrollTo({
-                        top: window.parent.document.body.scrollHeight,
-                        behavior: 'smooth'
-                    });
+                    var chatBox = window.parent.document.getElementById('chat-box');
+                    if (chatBox) {
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                    }
                 }, 100);
             </script>
             """,
