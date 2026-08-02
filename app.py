@@ -240,7 +240,7 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 
 import streamlit.components.v1 as components
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 智囊團（100% 擬真 Gemini 漸層與懸浮輸入框）
+# TAB 0: 🤖 Groq AI 智囊團（Gemini 風格 + JavaScript 自動滾動至底部）
 # ------------------------------------------------------------------------------
 with tab_ai:
     # 1. 初始化對話紀錄
@@ -292,13 +292,13 @@ with tab_ai:
             width: 100%;
             height: 120px;
             background: linear-gradient(to top, rgba(255,255,255,1) 40%, rgba(255,255,255,0) 100%);
-            pointer-events: none; /* 讓滑鼠可以穿透點擊 */
+            pointer-events: none;
             z-index: 9990;
         }
 
-        /* D. 調整聊天內容底部的留白，避免最後一行被輸入框遮住 */
+        /* D. 調整聊天內容底部的留白，確保滑到底部時不會被輸入框蓋住 */
         div[data-testid="stChatMessageContainer"] {
-            padding-bottom: 110px !important;
+            padding-bottom: 140px !important;
         }
         </style>
 
@@ -323,7 +323,7 @@ with tab_ai:
             </div>
         """, unsafe_allow_html=True)
 
-    # 5. 渲染歷史聊天紀錄 (預設會隨著頁面往下滑動)
+    # 5. 渲染歷史聊天紀錄
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -365,6 +365,20 @@ with tab_ai:
 
                 except Exception as e:
                     st.error(f"❌ 發生錯誤：{e}")
+
+    # 8. 🚀 關鍵修復：強制 JavaScript 自動滾動至頁面最底部
+    if st.session_state.messages:
+        st.components.v1.html(
+            """
+            <script>
+                var mainContainer = window.parent.document.querySelector('.main');
+                if (mainContainer) {
+                    mainContainer.scrollTop = mainContainer.scrollHeight;
+                }
+            </script>
+            """,
+            height=0,
+        )
 # ------------------------------------------------------------------------------
 # TAB 1: 📅 視覺化日曆網格（7 欄完美不跑版 + 支援直接點擊日期彈窗）
 # ------------------------------------------------------------------------------
