@@ -433,187 +433,214 @@ with tab_cal:
         sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
 
 # ------------------------------------------------------------------------------
-# 📅 一舉兩得方案：按鈕即卡片 (100% 點擊卡片開啟編輯 + CSS Grid 美化 + 絕不直排)
+# 📅 100% 完全還原：自訂 CSS Grid 7 欄卡片月曆（支援窄螢幕，絕不直排）
 # ------------------------------------------------------------------------------
 with tab_cal:
-    # 1. 注入 CSS 全域樣式：強制 7 欄橫向排列 + 將按鈕打造成圓角卡片
+    # 1. 注入強大的 CSS Grid 樣式
     st.markdown(
         """
         <style>
-        /* 1. 強制 7 欄列橫向不換行、不拆成直排 */
-        div[data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            gap: 6px !important;
-            width: 100% !important;
-        }
-        div[data-testid="column"] {
-            flex: 1 1 0px !important;
-            min-width: 0px !important;
+        /* 容器與背景 */
+        .cal-container {
+            background-color: #f6fbf4;
+            padding: 16px;
+            border-radius: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
 
-        /* 2. 星期標頭樣式 */
-        .cal-header-box {
+        /* 核心：7 欄 CSS Grid，強制不論螢幕多窄都不換行成直排 */
+        .cal-grid {
+            display: grid !important;
+            grid-template-columns: repeat(7, 1fr) !important;
+            gap: 8px !important;
+            width: 100% !important;
+        }
+
+        /* 星期標頭 */
+        .cal-header {
             text-align: center;
             font-weight: bold;
             font-size: 15px;
-            padding: 4px 0;
+            padding: 6px 0;
         }
-        .hdr-sun { color: #f87171; }
-        .hdr-sat { color: #38bdf8; }
-        .hdr-normal { color: #52525b; }
+        .header-sun { color: #f87171; }
+        .header-sat { color: #38bdf8; }
+        .header-weekday { color: #52525b; }
 
-        /* 3. 將 Streamlit 原生按鈕直接改造為圓角卡片 */
-        div[data-testid="column"] button {
-            width: 100% !important;
-            height: 80px !important;
-            background-color: #ffffff !important;
-            border: 1px solid #f0f0f0 !important;
-            border-radius: 14px !important;
-            padding: 6px 6px !important;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: flex-start !important;
-            align-items: flex-start !important;
-            transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+        /* 卡片主體 */
+        .cal-day-card {
+            background-color: #ffffff;
+            border-radius: 14px;
+            min-height: 75px;
+            padding: 6px 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
         }
-        div[data-testid="column"] button:hover {
-            border-color: #00c896 !important;
-            transform: translateY(-2px) !important;
-            box-shadow: 0 4px 10px rgba(0,200,150,0.15) !important;
-        }
-
-        /* 4. 今天（Today）卡片樣式 */
-        div[data-testid="column"] button.btn-today {
+        .cal-day-card.today {
             background-color: #00c896 !important;
-            border-color: #00c896 !important;
         }
 
-        /* 5. 按鈕內部 Markdown 排版 */
-        div[data-testid="column"] button p {
-            width: 100% !important;
-            text-align: left !important;
-            margin: 0 !important;
-            line-height: 1.2 !important;
+        /* 日期數字 */
+        .day-num {
+            font-size: 16px;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+        .num-sun { color: #f87171; }
+        .num-sat { color: #38bdf8; }
+        .num-weekday { color: #27272a; }
+        .today .day-num { color: #ffffff !important; }
+
+        /* 行程標籤 */
+        .event-chip {
+            font-size: 10px;
+            padding: 2px 4px;
+            border-radius: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px;
+            font-weight: 600;
+        }
+        .chip-red { background-color: #fde8e8; color: #e11d48; }
+        .chip-gray { background-color: #f1f5f9; color: #475569; }
+
+        /* 即將到來 (Upcoming) 列表樣式 */
+        .upcoming-title {
+            font-weight: 700;
+            color: #71717a;
+            font-size: 14px;
+            margin: 16px 0 8px 0;
+        }
+        .upcoming-card {
+            background-color: #fff1f2;
+            border: 1px solid #fecdd3;
+            border-radius: 20px;
+            padding: 10px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .upcoming-text {
+            color: #e11d48;
+            font-weight: 700;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .upcoming-date {
+            color: #a1a1aa;
+            font-size: 13px;
         }
         </style>
     """,
         unsafe_allow_html=True,
     )
 
-    # 2. 渲染星期標頭
-    w_cols = st.columns(7)
-    weekdays_data = [
-        ("日", "hdr-sun"),
-        ("一", "hdr-normal"),
-        ("二", "hdr-normal"),
-        ("三", "hdr-normal"),
-        ("四", "hdr-normal"),
-        ("五", "hdr-normal"),
-        ("六", "hdr-sat"),
-    ]
-    for idx, (w_text, w_cls) in enumerate(weekdays_data):
-        w_cols[idx].markdown(
-            f"<div class='cal-header-box {w_cls}'>{w_text}</div>",
-            unsafe_allow_html=True,
-        )
-
-    # 3. 渲染日曆網格（按鈕直接作為卡片，點擊直開彈窗）
+    # 2. 構建完整的 7 欄 HTML 月曆
     cal_obj = calendar.Calendar(firstweekday=6)
     month_days = cal_obj.monthdayscalendar(sel_year, sel_month)
 
+    grid_html = "<div class='cal-container'>"
+    
+    # 星期標頭 HTML
+    grid_html += "<div class='cal-grid'>"
+    grid_html += "<div class='cal-header header-sun'>日</div>"
+    grid_html += "<div class='cal-header header-weekday'>一</div>"
+    grid_html += "<div class='cal-header header-weekday'>二</div>"
+    grid_html += "<div class='cal-header header-weekday'>三</div>"
+    grid_html += "<div class='cal-header header-weekday'>四</div>"
+    grid_html += "<div class='cal-header header-weekday'>五</div>"
+    grid_html += "<div class='cal-header header-sat'>六</div>"
+    grid_html += "</div>"
+
+    # 每天的卡片 HTML
     for week in month_days:
-        cols = st.columns(7)
+        grid_html += "<div class='cal-grid' style='margin-top: 8px;'>"
         for idx, day in enumerate(week):
-            with cols[idx]:
-                if day == 0:
-                    st.write("")
-                else:
-                    day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
-                    is_today = (
-                        sel_year == today.year
-                        and sel_month == today.month
-                        and day == today.day
-                    )
-                    day_evs = [
-                        e for e in active_events if e.get("date") == day_str
-                    ]
+            if day == 0:
+                grid_html += "<div></div>"
+            else:
+                day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
+                is_today = (sel_year == today.year and sel_month == today.month and day == today.day)
+                day_evs = [e for e in active_events if e.get("date") == day_str]
 
-                    # 數字顏色設定
-                    if is_today:
-                        num_color = ":white"
-                    elif idx == 0:
-                        num_color = ":red"
-                    elif idx == 6:
-                        num_color = ":blue"
-                    else:
-                        num_color = ":gray"
+                # 數字色彩 (0:週日, 6:週六)
+                num_cls = "num-sun" if idx == 0 else ("num-sat" if idx == 6 else "num-weekday")
+                card_cls = "cal-day-card today" if is_today else "cal-day-card"
 
-                    # 組合按鈕內的富文本 (Markdown Label)
-                    label_content = f"**{num_color}[{day}]**"
+                # 行程 Chip
+                chip_html = ""
+                if day_evs:
+                    ev = day_evs[0]
+                    title = ev.get("title", "")
+                    cate = ev.get("category", "")
+                    chip_cls = "chip-red" if ("考" in title or cate == "重要提醒") else "chip-gray"
+                    more = f" (+{len(day_evs)-1})" if len(day_evs) > 1 else ""
+                    chip_html = f"<div class='event-chip {chip_cls}'>{title}{more}</div>"
 
-                    if day_evs:
-                        ev = day_evs[0]
-                        title = ev.get("title", "")
-                        cate = ev.get("category", "")
-                        if len(title) > 4:
-                            title = title[:3] + ".."
-                        more = (
-                            f"(+{len(day_evs)-1})" if len(day_evs) > 1 else ""
-                        )
+                grid_html += f"<div class='{card_cls}'><div class='day-num {num_cls}'>{day}</div>{chip_html}</div>"
+        grid_html += "</div>"
+    
+    grid_html += "</div>"
 
-                        # 紅色底標或灰色底標
-                        if "考" in title or cate == "重要提醒":
-                            label_content += (
-                                f"\n\n:red-background[:red[**{title}{more}**]]"
-                            )
-                        else:
-                            label_content += (
-                                f"\n\n:gray-background[{title}{more}]"
-                            )
+    # 3. 渲染純 HTML 月曆 (保證不拆欄、絕不跑版)
+    st.markdown(grid_html, unsafe_allow_html=True)
 
-                    # 渲染卡片按鈕，點擊立刻打開彈窗！
-                    if st.button(
-                        label_content,
-                        key=f"card_btn_{day_str}",
-                        use_container_width=True,
-                    ):
-                        open_day_dialog(day_str)
+    # 4. 還原圖片下方的「即將到來」行程列表
+    st.markdown("<div class='upcoming-title'>即將到來</div>", unsafe_allow_html=True)
 
-    st.divider()
-
-    # 4. 下方「即將到來」列表 (還原圖片下方區塊)
-    st.markdown("#### 📌 即將到來")
-    future_events = [
-        e
-        for e in active_events
-        if e.get("date") >= today.strftime("%Y-%m-%d")
-    ]
+    # 篩選未來的行程並排序
+    future_events = [e for e in active_events if e.get("date") >= today.strftime("%Y-%m-%d")]
     future_events.sort(key=lambda x: x.get("date"))
 
     if not future_events:
         st.info("💡 目前沒有即將到來的行程安排。")
     else:
-        for ev in future_events[:5]:
+        for ev in future_events[:5]:  # 顯示前 5 筆
             ev_date = datetime.strptime(ev["date"], "%Y-%m-%d").date()
             delta_days = (ev_date - today).days
-            day_hint = (
-                "今天"
-                if delta_days == 0
-                else ("明天" if delta_days == 1 else f"{delta_days}天後")
-            )
+            
+            if delta_days == 0:
+                day_hint = "今天"
+            elif delta_days == 1:
+                day_hint = "明天"
+            else:
+                day_hint = f"{delta_days}天後"
+
+            date_display = f"{ev_date.month}/{ev_date.day} · {day_hint}"
 
             st.markdown(
                 f"""
-                <div style="background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 16px; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <div style="color: #e11d48; font-weight: bold; font-size: 14px;">● {ev.get('title', '')}</div>
-                    <div style="color: #9ca3af; font-size: 13px;">{ev_date.month}/{ev_date.day} · {day_hint}</div>
+                <div class="upcoming-card">
+                    <div class="upcoming-text">
+                        <span>●</span>
+                        <span>{ev.get('title', '')}</span>
+                    </div>
+                    <div class="upcoming-date">{date_display}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+
+    st.divider()
+
+    # 5. 操作互動區（選擇日期編輯或新增）
+    st.markdown("#### 📝 行程點擊與管理")
+    all_month_days = [f"{sel_year}-{sel_month:02d}-{d:02d}" for w in month_days for d in w if d != 0]
+    col_sel_d, col_btn_d = st.columns([3, 1])
+    with col_sel_d:
+        target_date = st.selectbox("請選擇要查看 / 管理的日期：", all_month_days)
+    with col_btn_d:
+        st.write("")
+        st.write("")
+        if st.button("🔍 開啟日期詳情", use_container_width=True, type="primary"):
+            open_day_dialog(target_date)
 # ------------------------------------------------------------------------------
 # TAB 2~5 保持工具完整
 # ------------------------------------------------------------------------------
