@@ -240,122 +240,72 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 
 import streamlit.components.v1 as components
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 智囊團（左右氣泡樣式 + 自動滑動）
+# TAB 0: 🤖 Groq AI 智囊團（完美左右氣泡 + JS 強制自動滑動）
 # ------------------------------------------------------------------------------
 with tab_ai:
     # 1. 初始化對話紀錄
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 2. 🚀 核心優化：注入 CSS 實現真正的左右氣泡佈局與淡出漸層
+    # 2. 注入自訂 CSS（專門處理左右氣泡與漸層遮罩）
     st.markdown("""
         <style>
-        /* A. 歡迎標題樣式 */
-        .ai-welcome-container {
+        /* 歡迎頁標題 */
+        .welcome-box {
             text-align: center;
-            padding: 80px 20px 40px 20px;
+            padding: 60px 20px 20px 20px;
         }
-        .ai-welcome-title {
-            font-size: 38px !important;
+        .welcome-title {
+            font-size: 36px;
             font-weight: 700;
             background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
         }
-        .ai-welcome-sub {
+        .welcome-sub {
             color: #5f6368;
             font-size: 16px;
         }
 
-        /* B. 全域調整：移除預設 Streamlit 聊天容器內邊距，我們手動控制 */
-        div[data-testid="stChatMessageContainer"] {
-            padding: 0 !important;
+        /* 💡 右側使用者對話框（灰色圓角氣泡） */
+        .user-bubble-container {
             display: flex;
-            flex-direction: column;
-            gap: 1.5rem !important; /* 訊息之間的間距 */
+            justify-content: flex-end;
+            margin-bottom: 16px;
         }
-        /* 隱藏預設的頭像，因為這個設計不使用頭像 */
-        div[data-testid="stChatMessageAvatar"] {
-            display: none !important;
-        }
-        /* 移除預設的訊息邊框 */
-        div[data-testid="stChatMessage"] {
-            border: None !important;
-            background-color: transparent !important;
-        }
-        /* 讓訊息內容容器全寬 */
-        div[data-testid="stChatMessageContent"] {
-            width: 100% !important;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
+        .user-bubble {
+            background-color: #f1f3f4;
+            color: #202124;
+            padding: 10px 18px;
+            border-radius: 20px 20px 4px 20px;
+            max-width: 70%;
+            font-size: 15px;
+            line-height: 1.5;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
         }
 
-        /* C. 🔥 實作左右分流：使用者靠右、AI 靠左 */
-        
-        /* 1. 使用者訊息 (你): 靠右對齊，帶圓角灰色背景框 */
-        [data-testid="stChatMessageUser"] div[data-testid="stChatMessageContent"] {
-            justify-content: flex-end !important;
+        /* 💡 左側 AI 回覆（靠左純文字顯示） */
+        .ai-bubble-container {
+            display: flex;
+            justify-content: flex-start;
+            margin-bottom: 24px;
         }
-        [data-testid="stChatMessageUser"] p, [data-testid="stChatMessageUser"] h3 {
-            background-color: #f1f3f4 !important; /* 灰色背景框色 */
-            color: #202124 !important;
-            border-radius: 20px 20px 0 20px !important; /* 圓角樣式 */
-            padding: 10px 16px !important;
-            max-width: 75% !important; /* 限制寬度 */
-            box-shadow: 0 1px 2px rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15) !important;
+        .ai-bubble {
+            color: #1f1f1f;
+            max-width: 85%;
+            font-size: 15px;
+            line-height: 1.6;
         }
 
-        /* 2. AI 助手 (他): 靠左對齊，無背景色，純文字顯示 */
-        [data-testid="stChatMessageAssistant"] div[data-testid="stChatMessageContent"] {
-            justify-content: flex-start !important;
-        }
-        [data-testid="stChatMessageAssistant"] p, [data-testid="stChatMessageAssistant"] h3 {
-            background-color: transparent !important; /* 無背景框 */
-            color: #202124 !important;
-            padding: 10px 0 !important; /* 只上下留白，靠左無間距 */
-            max-width: 90% !important;
-        }
-
-        /* D. 底部控制區：固定在畫面的中央底部 */
-        div[data-testid="stChatInput"] {
-            position: fixed !important;
-            bottom: 30px !important;
-            left: 50% !important;
-            transform: translateX(-50%) !important;
-            max-width: 720px !important;
-            width: 90% !important;
-            z-index: 9999 !important;
-            background-color: #ffffff !important;
-            border-radius: 28px !important;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05) !important;
-            border: 1px solid #e2e8f0 !important;
-            padding: 4px 8px !important;
-        }
-
-        /* E. 底部淡出漸層遮罩 (Gemini 風格) */
-        .gemini-fade-overlay {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            height: 120px;
-            background: linear-gradient(to top, rgba(255,255,255,1) 40%, rgba(255,255,255,0) 100%);
-            pointer-events: none;
-            z-index: 9990;
-        }
-
-        /* F. 調整頁面底部的留白，確保滑到底部時不會被輸入框遮住 */
-        div[data-testid="stChatMessageContainer"] {
-            padding-bottom: 140px !important;
+        /* 底部留白，確保對話不被輸入框擋住 */
+        .chat-space-bottom {
+            height: 40px;
         }
         </style>
-
-        <!-- 渲染底部淡出漸層遮罩 -->
-        <div class="gemini-fade-overlay"></div>
     """, unsafe_allow_html=True)
 
-    # 3. 頂部控制區 (重置按鈕)
+    # 3. 頂部控制按鈕
     if st.session_state.messages:
         c_space, c_reset = st.columns([5, 1])
         with c_reset:
@@ -363,78 +313,80 @@ with tab_ai:
                 st.session_state.messages = []
                 st.rerun()
 
-    # 4. 歡迎畫面（無訊息時顯示）
+    # 4. 歡迎畫面（尚未發言時）
     if not st.session_state.messages:
         st.markdown("""
-            <div class="ai-welcome-container">
-                <div class="ai-welcome-title">Jayden，儘管發問吧！</div>
-                <div class="ai-welcome-sub">我可以幫你規劃行程、撰寫文案或解答各種問題</div>
+            <div class="welcome-box">
+                <div class="welcome-title">Jayden，儘管發問吧！</div>
+                <div class="welcome-sub">我可以幫你規劃行程、撰寫文案或解答各種問題</div>
             </div>
         """, unsafe_allow_html=True)
 
-    # 5. 渲染對話紀錄（將被 CSS 手動控制樣式與對齊）
+    # 5. 渲染聊天對話（自訂 HTML 確保 100% 左右分流與框框）
     for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        if msg["role"] == "user":
+            # 使用者訊息：靠右灰色氣泡
+            st.markdown(f"""
+                <div class="user-bubble-container">
+                    <div class="user-bubble">{msg['content']}</div>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            # AI 訊息：靠左顯示
+            st.markdown(f"""
+                <div class="ai-bubble-container">
+                    <div class="ai-bubble">{msg['content']}</div>
+                </div>
+            """, unsafe_allow_html=True)
 
-    # 6. 懸浮底部輸入框
+    st.markdown('<div class="chat-space-bottom"></div>', unsafe_allow_html=True)
+
+    # 6. 輸入框（原生最穩定的底欄）
     if prompt := st.chat_input("問問 AI 助手..."):
         if "GROQ_API_KEY" not in st.secrets or not st.secrets["GROQ_API_KEY"]:
             st.error("⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`，請先至後台設定。")
         else:
-            # 存入使用者訊息
             st.session_state.messages.append({"role": "user", "content": prompt})
             st.rerun()
 
-    # 7. 處理 AI 回覆 (觸發流式輸出或完整生成)
+    # 7. AI 回覆處理
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-        # 顯示助手正在思考的臨時訊息
-        placeholder_assistant = st.empty()
-        with placeholder_assistant:
-             with st.chat_message("assistant"):
-                st.write("...") # 給一個預留位置
+        with st.spinner("AI 思考中..."):
+            try:
+                from groq import Groq
+                client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-        # 這裡不呼叫 reruns，我們在內部進行流式渲染
-        # 開始調用 Groq
-        with chat_container if 'chat_container' in locals() else placeholder_assistant:
-             with st.chat_message("assistant"):
-                with st.spinner("思考中..."):
-                    try:
-                        from groq import Groq
-                        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+                api_messages = [
+                    {"role": "system", "content": "你是一個親切且專業的繁體中文 AI 助手。"}
+                ] + [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.messages
+                ]
 
-                        api_messages = [
-                            {"role": "system", "content": "你是一個親切且專業的繁體中文 AI 助手。"}
-                        ] + [
-                            {"role": m["role"], "content": m["content"]}
-                            for m in st.session_state.messages
-                        ]
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=api_messages,
+                    temperature=0.7,
+                )
 
-                        response = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=api_messages,
-                            temperature=0.7,
-                        )
+                ai_reply = response.choices[0].message.content
+                st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                st.rerun()
 
-                        ai_reply = response.choices[0].message.content
-                        st.markdown(ai_reply)
-                        
-                        # 存入對話歷史
-                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                        st.rerun()
+            except Exception as e:
+                st.error(f"❌ 發生錯誤：{e}")
 
-                    except Exception as e:
-                        st.error(f"❌ 發生錯誤：{e}")
-
-    # 8. 🚀 關鍵修復：JavaScript 強制自動滾動至底部
+    # 8. 🚀 強制自動滑動到底部的 JS（支援所有瀏覽器）
     if st.session_state.messages:
         st.components.v1.html(
             """
             <script>
-                var mainContainer = window.parent.document.querySelector('.main');
-                if (mainContainer) {
-                    mainContainer.scrollTop = mainContainer.scrollHeight;
-                }
+                setTimeout(function() {
+                    window.parent.scrollTo({
+                        top: window.parent.document.body.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }, 100);
             </script>
             """,
             height=0,
