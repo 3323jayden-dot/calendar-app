@@ -199,24 +199,30 @@ if not st.session_state.logged_in:
                             "role": (
                                 "pro" if reg_email == ADMIN_EMAIL else "free"
                             ),
+                            "is_unlimited": (
+                                True if reg_email == ADMIN_EMAIL else False
+                            ),  # 新增無限額度標籤
                             "daily_usage": 0,
                             "last_use_date": str(date.today()),
                         }
                         save_data(USERS_FILE, users)
                         st.success("🎉 註冊成功！請切換至「帳號登入」頁籤進行登入。")
 
-    # 🛑 關鍵：未登入時停止繼續執行下方的主系統頁面（Tabs）
+    # 🛑 未登入時停止繼續執行下方的主系統頁面
     st.stop()
 
 
 # ------------------------------------------------------------------------------
-# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與登出按鈕
+# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與管理員控制台
 # ------------------------------------------------------------------------------
 st.sidebar.title("🔐 會員系統")
 
 u_data = users.get(st.session_state.user_email, {})
 current_user_name = u_data.get("name", "會員")
 user_role = u_data.get("role", "free")
+is_unlimited = u_data.get("is_unlimited", False) or (
+    st.session_state.user_email == ADMIN_EMAIL
+)
 
 role_badge = (
     "👑 Admin / Pro"
@@ -227,11 +233,15 @@ role_badge = (
 st.sidebar.success(f"歡迎回來，**{current_user_name}**！")
 st.sidebar.markdown(f"**目前身分**：`{role_badge}`")
 
+# 顯示用量狀態
 _, _, usage, limit = check_and_update_usage(st.session_state.user_email)
-st.sidebar.progress(
-    min(usage / limit, 1.0),
-    text=f"今日用量：{usage} / {limit} 次",
-)
+if is_unlimited or limit == "∞":
+    st.sidebar.info(f"♾️ AI 訊息：**無限量暢聊** (今日已用 {usage} 次)")
+else:
+    st.sidebar.progress(
+        min(usage / limit, 1.0),
+        text=f"今日 AI 額度：{usage} / {limit} 次",
+    )
 
 # 🚪 安全登出按鈕
 if st.sidebar.button("🚪 安全登出", use_container_width=True):
@@ -239,35 +249,49 @@ if st.sidebar.button("🚪 安全登出", use_container_width=True):
     st.session_state.user_email = ""
     st.rerun()
 
-# 🛡️ 管理員專屬後台
+
+# ------------------------------------------------------------------------------
+# 🛡️ 管理員專屬後台（可直接修改無限 AI 額度）
+# ------------------------------------------------------------------------------
 if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
     st.sidebar.divider()
     with st.sidebar.expander("🛡️ 系統後台管理 (Admin Only)", expanded=False):
-        st.markdown("**管理員控制台**")
+        st.markdown("**會員權限與 AI 額度管理**")
         if users:
             selected_user_email = st.selectbox(
                 "選擇要管理的會員", list(users.keys())
             )
+
             if selected_user_email:
                 u_info = users[selected_user_email]
                 st.text(f"暱稱: {u_info.get('name', '未設定')}")
 
+                # 1. 修改會員等級
                 new_role = st.selectbox(
                     "調整會員等級",
                     ["free", "pro"],
                     index=0 if u_info.get("role") == "free" else 1,
                 )
+
+                # 2. ⚡ 開關：開啟/關閉無限 AI 對話權限
+                current_unlimited = u_info.get("is_unlimited", False)
+                new_unlimited = st.toggle(
+                    "♾️ 開啟無限 AI 訊息", value=current_unlimited
+                )
+
+                # 3. 修改密碼
                 new_pwd = st.text_input(
                     "修改該帳號密碼",
                     value=u_info.get("password", ""),
                     key="admin_pwd_edit",
                 )
 
-                if st.button("💾 更新會員設定"):
+                if st.button("💾 保存變更", use_container_width=True):
                     users[selected_user_email]["role"] = new_role
+                    users[selected_user_email]["is_unlimited"] = new_unlimited
                     users[selected_user_email]["password"] = new_pwd
                     save_data(USERS_FILE, users)
-                    st.success("會員權限已成功更新！")
+                    st.success("✅ 會員權限與額度已更新！")
                     st.rerun()
 # ==============================================================================
 # 4. 主畫面：分頁與模組 (Tabs)
