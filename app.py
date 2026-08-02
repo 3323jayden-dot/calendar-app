@@ -432,23 +432,16 @@ with tab_cal:
     with c_m:
         sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
 
-   # ------------------------------------------------------------------------------
-# 📅 100% 還原圖片樣式：卡片式視覺月曆
+# ------------------------------------------------------------------------------
+# 📅 100% 還原圖片樣式：卡片式視覺月曆（完全修復 </div> 亂碼與縮排問題）
 # ------------------------------------------------------------------------------
 with tab_cal:
-    # 注入專屬 CSS 樣式（精準還原圖片色彩與圓角卡片）
+    # 1. 注入 CSS 樣式
     st.markdown(
         """
         <style>
-        /* 強制 7 欄橫向排列不換行 */
-        .cal-grid-row {
-            display: flex !important;
-            flex-direction: row !important;
-            gap: 8px !important;
-            margin-bottom: 8px !important;
-        }
+        /* 星期標頭與卡片網格 */
         .cal-header-col {
-            flex: 1;
             text-align: center;
             font-weight: bold;
             font-size: 16px;
@@ -462,34 +455,35 @@ with tab_cal:
         .cal-card-wrapper {
             position: relative;
             width: 100%;
-            height: 90px;
+            height: 85px;
+            margin-bottom: 6px;
         }
 
-        /* 繪製視覺卡片 */
+        /* 視覺卡片主體 */
         .cal-card {
             width: 100%;
             height: 100%;
             background-color: #ffffff;
             border-radius: 16px;
-            padding: 8px 10px;
+            padding: 6px 8px;
             box-shadow: 0 2px 6px rgba(0,0,0,0.04);
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
             box-sizing: border-box;
-            transition: all 0.2s ease;
+            border: 1px solid #f0f0f0;
         }
         .cal-card-today {
             background-color: #00c896 !important;
-            color: #ffffff !important;
+            border-color: #00c896 !important;
         }
 
         /* 日期數字色彩 */
         .day-num {
-            font-size: 18px;
+            font-size: 17px;
             font-weight: bold;
-            margin-bottom: 4px;
-            line-height: 1;
+            line-height: 1.2;
+            margin-bottom: 2px;
         }
         .num-sun { color: #e74c3c; }
         .num-sat { color: #3498db; }
@@ -500,14 +494,14 @@ with tab_cal:
         .event-tag {
             font-size: 11px;
             padding: 2px 6px;
-            border-radius: 8px;
+            border-radius: 6px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 100%;
-            display: inline-block;
+            display: block;
             margin-top: 2px;
-            font-weight: 500;
+            font-weight: 600;
         }
         .tag-red {
             background-color: #fde8e8;
@@ -518,53 +512,52 @@ with tab_cal:
             color: #3c4043;
         }
 
-        /* 隱形透明按鈕蓋在卡片上方 */
-        .cal-card-wrapper div[data-testid="stButton"] {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 2;
+        /* 將 Streamlit 的原生按鈕做成透明並壓在卡片上方以供點擊 */
+        div[data-testid="column"] {
+            position: relative;
         }
-        .cal-card-wrapper div[data-testid="stButton"] > button {
-            width: 100% !important;
-            height: 100% !important;
+        div[data-testid="column"] button {
+            margin-top: -91px !important;
+            height: 85px !important;
             background: transparent !important;
             border: none !important;
             color: transparent !important;
             box-shadow: none !important;
-            cursor: pointer;
+            cursor: pointer !important;
+            width: 100% !important;
+            z-index: 10 !important;
         }
-        .cal-card-wrapper:hover .cal-card {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        div[data-testid="column"] button:hover {
+            background: rgba(0,0,0,0.02) !important;
+            border-radius: 16px !important;
         }
         </style>
     """,
         unsafe_allow_html=True,
     )
 
-    # 1. 星期標頭 (日 一 二 三 四 五 六)
-    weekdays_html = """
-    <div class="cal-grid-row">
-        <div class="cal-header-col header-sun">日</div>
-        <div class="cal-header-col header-weekday">一</div>
-        <div class="cal-header-col header-weekday">二</div>
-        <div class="cal-header-col header-weekday">三</div>
-        <div class="cal-header-col header-weekday">四</div>
-        <div class="cal-header-col header-weekday">五</div>
-        <div class="cal-header-col header-sat">六</div>
-    </div>
-    """
-    st.markdown(weekdays_html, unsafe_allow_html=True)
+    # 2. 渲染星期標頭 (日 一 二 三 四 五 六)
+    w_cols = st.columns(7)
+    weekdays = [
+        ("日", "header-sun"),
+        ("一", "header-weekday"),
+        ("二", "header-weekday"),
+        ("三", "header-weekday"),
+        ("四", "header-weekday"),
+        ("五", "header-weekday"),
+        ("六", "header-sat"),
+    ]
 
-    # 2. 生成日曆網格 (以 Sunday 開頭)
-    # 設定週日為一週的第一天
+    for idx, (w_text, w_class) in enumerate(weekdays):
+        w_cols[idx].markdown(
+            f"<div class='cal-header-col {w_class}'>{w_text}</div>",
+            unsafe_allow_html=True,
+        )
+
+    # 3. 渲染日曆網格 (Sunday 第一天)
     cal_obj = calendar.Calendar(firstweekday=6)
     month_days = cal_obj.monthdayscalendar(sel_year, sel_month)
 
-    # 渲染每一週
     for week in month_days:
         cols = st.columns(7)
         for idx, day in enumerate(week):
@@ -582,7 +575,7 @@ with tab_cal:
                         e for e in active_events if e.get("date") == day_str
                     ]
 
-                    # 決定數字顏色 (0: 週日, 6: 週六)
+                    # 數字顏色 (0:週日, 6:週六)
                     if idx == 0:
                         num_class = "num-sun"
                     elif idx == 6:
@@ -594,14 +587,14 @@ with tab_cal:
                         "cal-card cal-card-today" if is_today else "cal-card"
                     )
 
-                    # 構建行程標籤 HTML
+                    # 構建行程標籤
                     tag_html = ""
                     if day_evs:
                         ev = day_evs[0]
                         title = ev.get("title", "")
                         category = ev.get("category", "")
 
-                        # 根據分類或內容選顏色 (例如英文考/重要用紅標，數學/補習用灰標)
+                        # 區分紅色標籤 (考試/重要) 與灰色標籤 (補習/一般)
                         if "考" in title or category == "重要提醒":
                             tag_style = "tag-red"
                         else:
@@ -610,24 +603,15 @@ with tab_cal:
                         more_count = (
                             f" (+{len(day_evs)-1})" if len(day_evs) > 1 else ""
                         )
-                        tag_html = f'<div class="event-tag {tag_style}">{title}{more_count}</div>'
+                        tag_html = f"<span class='event-tag {tag_style}'>{title}{more_count}</span>"
 
-                    # 結合 HTML 卡片與隱形觸發按鈕
-                    st.markdown(
-                        f"""
-                        <div class="cal-card-wrapper">
-                            <div class="{card_class}">
-                                <div class="day-num {num_class}">{day}</div>
-                                {tag_html}
-                            </div>
-                        </div>
-                    """,
-                        unsafe_allow_html=True,
-                    )
+                    # 關鍵：將所有 HTML 壓在單一行字串內，絕不帶縮排與換行！
+                    card_html = f"<div class='cal-card-wrapper'><div class='{card_class}'><div class='day-num {num_class}'>{day}</div>{tag_html}</div></div>"
+                    st.markdown(card_html, unsafe_allow_html=True)
 
-                    # 蓋上一層透明按鈕來監聽點擊事件
+                    # 放置透明按鈕進行點擊監聽
                     if st.button(
-                        " ", key=f"click_day_{day_str}", use_container_width=True
+                        " ", key=f"btn_click_{day_str}", use_container_width=True
                     ):
                         open_day_dialog(day_str)
 # ------------------------------------------------------------------------------
