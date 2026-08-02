@@ -1176,7 +1176,7 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # ==============================================================================
 with tab_img:
     st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1 精確版)")
-    st.caption("支援中文描述！呼叫原生 FLUX.1 極速引擎，生成大師質感圖像。已優化提示詞逻辑，告別亂畫！")
+    st.caption("支援中文描述！呼叫原生 FLUX.1 極速引擎，生成大師質感圖像。已優化提示詞邏輯與語法！")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
@@ -1191,7 +1191,6 @@ with tab_img:
 
         col_btn1, col_btn2 = st.columns([1, 1])
         with col_btn1:
-            # 預設開啟，但底層邏輯已修改為「只翻譯不加戲」
             use_magic_prompt = st.checkbox(
                 "✨ 開啟 Groq 精確翻譯大師 (只翻譯不亂加細節)", value=True, key="img_use_magic"
             )
@@ -1224,7 +1223,7 @@ with tab_img:
             key="img_ratio_select",
         )
 
-    # 尺寸自動換算 (優化解析度)
+    # 尺寸自動換算
     ratio_map = {
         "1:1 (正方形 - 社群貼文/大頭貼)": (1024, 1024),
         "16:9 (橫向 - 桌布/YouTube 縮圖)": (1024, 576),
@@ -1269,10 +1268,9 @@ with tab_img:
                     from io import BytesIO
                     from huggingface_hub import InferenceClient
 
-                    # 核心變數初始化
                     final_user_content = raw_prompt.strip()
 
-                    # Groq 提示詞優化邏輯 (徹底修正：奪回主導權！)
+                    # Groq 提示詞優化邏輯 (只翻譯，不亂加細節)
                     groq_client = (
                         globals().get("client")
                         or globals().get("groq_client")
@@ -1281,7 +1279,6 @@ with tab_img:
 
                     if use_magic_prompt and groq_client:
                         try:
-                            # 💡 💡 💡 核心修正：System Prompt 徹底大改！💡 💡 💡
                             with st.spinner("🪄 Groq AI 正在構思藝術提示詞 (精確翻譯不加戲版)..."):
                                 magic_sys = (
                                     "You are an expert AI Image Prompt Translator. "
@@ -1298,7 +1295,7 @@ with tab_img:
                                         {"role": "system", "content": magic_sys},
                                         {"role": "user", "content": raw_prompt},
                                     ],
-                                    temperature=0.3, # 💡 💡 💡 降低溫度，讓翻译更精確，減少發散
+                                    temperature=0.3,
                                     max_tokens=250,
                                 )
                                 final_user_content = response.choices[0].message.content.strip()
@@ -1306,25 +1303,21 @@ with tab_img:
                         except Exception as e:
                             st.caption(f"提示詞優化微幅跳過 ({e})")
 
-                    # 💡 💡 💡 核心修正：強制使用者內容在前，風格前置詞在後 💡 💡 💡
                     full_final_prompt = f"{final_user_content}{style_prompts[style_option]}"
 
-                    with st.spinner("🚀 原生 FLUX.1 繪畫中 (需時約 10-20 秒)...告別山水畫與頭束！"):
+                    with st.spinner("🚀 原生 FLUX.1 繪畫中 (需時約 10-20 秒)..."):
                         try:
-                            # 使用官方 SDK 的 InferenceClient (最穩定)
+                            # 初始化 InferenceClient
                             client = InferenceClient(
                                 token=hf_token.strip(),
                             )
 
-                            # 直接呼叫 text_to_image API，FLUX 模型不需要指定特定的 Provider
+                            # 💡 修正：移除包在內層的 parameters 字典，改直接傳入 height 與 width
                             image_result = client.text_to_image(
-                                full_final_prompt,
-                                model="black-forest-labs/FLUX.1-schnell", # 指定 FLUX
-                                parameters={
-                                    "width": req_w,
-                                    "height": req_h,
-                                    "seed": random.randint(1, 999999),
-                                }
+                                prompt=full_final_prompt,
+                                model="black-forest-labs/FLUX.1-schnell",
+                                height=req_h,
+                                width=req_w
                             )
 
                             # 紀錄使用次數
@@ -1333,7 +1326,7 @@ with tab_img:
                             )
                             save_data(USERS_FILE, users)
 
-                            st.success("🎉 圖片生成完畢！主體精確，告別莫名其妙的水墨畫！")
+                            st.success("🎉 圖片生成完畢！")
                             st.image(
                                 image_result,
                                 caption=f"最終優化提示詞: {full_final_prompt}",
