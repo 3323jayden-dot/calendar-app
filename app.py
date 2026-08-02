@@ -228,8 +228,8 @@ if st.session_state.logged_in and st.session_state.user_email == "3323jayden@gma
 # ==============================================================================
 st.title("⚡ 多功能數位工作助理與行事曆")
 
-# 將 Groq AI 放在第一個位置
-tab_ai, tab_cal, tab_pdf, tab_img, tab_txt, tab_ig = st.tabs([
+# 確保變數名稱完整對應（包含原本的 tab_summary）
+tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
     "🤖 Groq AI 智囊團", 
     "📅 視覺化日曆與行程", 
     "📄 PDF 救星", 
