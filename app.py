@@ -240,22 +240,22 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 
 import streamlit.components.v1 as components
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 智囊團（Gemini 風格 + JavaScript 自動滾動至底部）
+# TAB 0: 🤖 Groq AI 智囊團（左右氣泡樣式 + 自動滑動）
 # ------------------------------------------------------------------------------
 with tab_ai:
     # 1. 初始化對話紀錄
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 2. 注入極致仿 Gemini 的 CSS 樣式
+    # 2. 🚀 核心優化：注入 CSS 實現真正的左右氣泡佈局與淡出漸層
     st.markdown("""
         <style>
         /* A. 歡迎標題樣式 */
-        .gemini-welcome-container {
+        .ai-welcome-container {
             text-align: center;
             padding: 80px 20px 40px 20px;
         }
-        .gemini-welcome-title {
+        .ai-welcome-title {
             font-size: 38px !important;
             font-weight: 700;
             background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853);
@@ -263,12 +263,61 @@ with tab_ai:
             -webkit-text-fill-color: transparent;
             margin-bottom: 12px;
         }
-        .gemini-welcome-sub {
+        .ai-welcome-sub {
             color: #5f6368;
             font-size: 16px;
         }
 
-        /* B. 美化 Streamlit 原生輸入框（懸浮、圓角膠囊狀、固定在底部） */
+        /* B. 全域調整：移除預設 Streamlit 聊天容器內邊距，我們手動控制 */
+        div[data-testid="stChatMessageContainer"] {
+            padding: 0 !important;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem !important; /* 訊息之間的間距 */
+        }
+        /* 隱藏預設的頭像，因為這個設計不使用頭像 */
+        div[data-testid="stChatMessageAvatar"] {
+            display: none !important;
+        }
+        /* 移除預設的訊息邊框 */
+        div[data-testid="stChatMessage"] {
+            border: None !important;
+            background-color: transparent !important;
+        }
+        /* 讓訊息內容容器全寬 */
+        div[data-testid="stChatMessageContent"] {
+            width: 100% !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+        }
+
+        /* C. 🔥 實作左右分流：使用者靠右、AI 靠左 */
+        
+        /* 1. 使用者訊息 (你): 靠右對齊，帶圓角灰色背景框 */
+        [data-testid="stChatMessageUser"] div[data-testid="stChatMessageContent"] {
+            justify-content: flex-end !important;
+        }
+        [data-testid="stChatMessageUser"] p, [data-testid="stChatMessageUser"] h3 {
+            background-color: #f1f3f4 !important; /* 灰色背景框色 */
+            color: #202124 !important;
+            border-radius: 20px 20px 0 20px !important; /* 圓角樣式 */
+            padding: 10px 16px !important;
+            max-width: 75% !important; /* 限制寬度 */
+            box-shadow: 0 1px 2px rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15) !important;
+        }
+
+        /* 2. AI 助手 (他): 靠左對齊，無背景色，純文字顯示 */
+        [data-testid="stChatMessageAssistant"] div[data-testid="stChatMessageContent"] {
+            justify-content: flex-start !important;
+        }
+        [data-testid="stChatMessageAssistant"] p, [data-testid="stChatMessageAssistant"] h3 {
+            background-color: transparent !important; /* 無背景框 */
+            color: #202124 !important;
+            padding: 10px 0 !important; /* 只上下留白，靠左無間距 */
+            max-width: 90% !important;
+        }
+
+        /* D. 底部控制區：固定在畫面的中央底部 */
         div[data-testid="stChatInput"] {
             position: fixed !important;
             bottom: 30px !important;
@@ -284,7 +333,7 @@ with tab_ai:
             padding: 4px 8px !important;
         }
 
-        /* C. 底部漸層遮罩（讓對話訊息滑到下方時有淡出隱藏效果） */
+        /* E. 底部淡出漸層遮罩 (Gemini 風格) */
         .gemini-fade-overlay {
             position: fixed;
             bottom: 0;
@@ -296,17 +345,17 @@ with tab_ai:
             z-index: 9990;
         }
 
-        /* D. 調整聊天內容底部的留白，確保滑到底部時不會被輸入框蓋住 */
+        /* F. 調整頁面底部的留白，確保滑到底部時不會被輸入框遮住 */
         div[data-testid="stChatMessageContainer"] {
             padding-bottom: 140px !important;
         }
         </style>
 
-        <!-- 渲染底部淡出漸層 -->
+        <!-- 渲染底部淡出漸層遮罩 -->
         <div class="gemini-fade-overlay"></div>
     """, unsafe_allow_html=True)
 
-    # 3. 頂部控制按鈕 (重置/新對話)
+    # 3. 頂部控制區 (重置按鈕)
     if st.session_state.messages:
         c_space, c_reset = st.columns([5, 1])
         with c_reset:
@@ -317,13 +366,13 @@ with tab_ai:
     # 4. 歡迎畫面（無訊息時顯示）
     if not st.session_state.messages:
         st.markdown("""
-            <div class="gemini-welcome-container">
-                <div class="gemini-welcome-title">Jayden，儘管發問吧！</div>
-                <div class="gemini-welcome-sub">我可以幫你規劃行程、撰寫文案或解答各種問題</div>
+            <div class="ai-welcome-container">
+                <div class="ai-welcome-title">Jayden，儘管發問吧！</div>
+                <div class="ai-welcome-sub">我可以幫你規劃行程、撰寫文案或解答各種問題</div>
             </div>
         """, unsafe_allow_html=True)
 
-    # 5. 渲染歷史聊天紀錄
+    # 5. 渲染對話紀錄（將被 CSS 手動控制樣式與對齊）
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -333,40 +382,51 @@ with tab_ai:
         if "GROQ_API_KEY" not in st.secrets or not st.secrets["GROQ_API_KEY"]:
             st.error("⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`，請先至後台設定。")
         else:
-            # 記錄使用者對話
+            # 存入使用者訊息
             st.session_state.messages.append({"role": "user", "content": prompt})
             st.rerun()
 
-    # 7. AI 回覆處理
+    # 7. 處理 AI 回覆 (觸發流式輸出或完整生成)
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-        with st.chat_message("assistant"):
-            with st.spinner("AI 思考中..."):
-                try:
-                    from groq import Groq
-                    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+        # 顯示助手正在思考的臨時訊息
+        placeholder_assistant = st.empty()
+        with placeholder_assistant:
+             with st.chat_message("assistant"):
+                st.write("...") # 給一個預留位置
 
-                    api_messages = [
-                        {"role": "system", "content": "你是一個親切且專業的繁體中文 AI 助手。"}
-                    ] + [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.messages
-                    ]
+        # 這裡不呼叫 reruns，我們在內部進行流式渲染
+        # 開始調用 Groq
+        with chat_container if 'chat_container' in locals() else placeholder_assistant:
+             with st.chat_message("assistant"):
+                with st.spinner("思考中..."):
+                    try:
+                        from groq import Groq
+                        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-                    response = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=api_messages,
-                        temperature=0.7,
-                    )
+                        api_messages = [
+                            {"role": "system", "content": "你是一個親切且專業的繁體中文 AI 助手。"}
+                        ] + [
+                            {"role": m["role"], "content": m["content"]}
+                            for m in st.session_state.messages
+                        ]
 
-                    ai_reply = response.choices[0].message.content
-                    st.markdown(ai_reply)
-                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                    st.rerun()
+                        response = client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=api_messages,
+                            temperature=0.7,
+                        )
 
-                except Exception as e:
-                    st.error(f"❌ 發生錯誤：{e}")
+                        ai_reply = response.choices[0].message.content
+                        st.markdown(ai_reply)
+                        
+                        # 存入對話歷史
+                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                        st.rerun()
 
-    # 8. 🚀 關鍵修復：強制 JavaScript 自動滾動至頁面最底部
+                    except Exception as e:
+                        st.error(f"❌ 發生錯誤：{e}")
+
+    # 8. 🚀 關鍵修復：JavaScript 強制自動滾動至底部
     if st.session_state.messages:
         st.components.v1.html(
             """
