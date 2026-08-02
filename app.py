@@ -903,13 +903,13 @@ with tab_cal:
 
     st.divider()
 
-    # --- 4. 操作互動區（升級為原生彈出式日曆選擇器，修正兩欄對齊與縮排） ---
+   # --- 4. 操作互動區（修復無反應問題） ---
     st.markdown("#### 📝 行程點擊與管理")
     
     col_sel_date, col_btn_action = st.columns([3, 1])
     
     with col_sel_date:
-        # 原生彈出式日曆小工具 (st.date_input)
+        # 使用 date_input 並綁定 key
         selected_date_obj = st.date_input(
             "請選擇要查看 / 管理的日期：",
             value=today,
@@ -919,14 +919,39 @@ with tab_cal:
         )
         target_date = selected_date_obj.strftime("%Y-%m-%d")
 
+    # 取得選定日期的所有行程
+    target_events = [e for e in active_events if e.get("date") == target_date]
+
     with col_btn_action:
         st.write("")
         st.write("")
+        # 點擊按鈕時，將選取的日期寫入 session_state 並刷新頁面
         if st.button("🔍 開啟日期詳情", use_container_width=True, type="primary"):
-            if "open_day_dialog" in globals():
-                open_day_dialog(target_date)
-            else:
-                st.info(f"📅 已選取日期：{target_date}")
+            st.session_state["selected_target_date"] = target_date
+            st.rerun()
+
+    # --- 5. 展示選定日期的行程與管理視窗 ---
+    # 只要 session_state 有值或是當前選取的日期，就自動顯示行程詳情面板
+    current_view_date = st.session_state.get("selected_target_date", target_date)
+    current_day_events = [e for e in active_events if e.get("date") == current_view_date]
+
+    with st.expander(f"📌 {current_view_date} 的行程詳情與管理", expanded=True):
+        if not current_day_events:
+            st.info(f"💡 {current_view_date} 當天尚無安排任何行程。")
+        else:
+            for idx, ev in enumerate(current_day_events):
+                col_ev_info, col_ev_del = st.columns([4, 1])
+                with col_ev_info:
+                    st.markdown(f"**• {ev.get('title', '無標題')}**（分類：`{ev.get('category', '一般')}`）")
+                    if ev.get("note"):
+                        st.caption(f"備註：{ev.get('note')}")
+                with col_ev_del:
+                    if st.session_state.logged_in:
+                        if st.button("🗑️ 刪除", key=f"del_ev_{current_view_date}_{idx}"):
+                            events.remove(ev)
+                            save_data(EVENTS_FILE, events)
+                            st.success("已成功刪除行程！")
+                            st.rerun()
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
