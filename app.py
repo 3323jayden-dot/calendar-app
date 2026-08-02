@@ -1175,8 +1175,8 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6.ai圖片生成
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖與靈感工房 (SDXL 頂級版)")
-    st.caption("支援中文描述！呼叫原生 Stable Diffusion XL 引擎，生成大師質感圖像。")
+    st.header("🎨 AI 頂級繪圖與靈感工房 (SDXL 穩定版)")
+    st.caption("支援中文描述！呼叫原生 SDXL 繪圖引擎，生成 8K 大師質感圖像。")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
@@ -1223,14 +1223,6 @@ with tab_img:
             key="img_ratio_select",
         )
 
-    # 尺寸自動換算
-    ratio_map = {
-        "1:1 (正方形 - 社群貼文/大頭貼)": (1024, 1024),
-        "16:9 (橫向 - 桌布/YouTube 縮圖)": (1024, 576),
-        "9:16 (縱向 - 手機桌布/Reels/Threads)": (576, 1024),
-    }
-    req_w, req_h = ratio_map[aspect_ratio]
-
     style_prompts = {
         "自然寫實 (Cinematic Realism)": ", photorealistic, 8k resolution, cinematic lighting, highly detailed, sharp focus, masterwork, professional photography",
         "日系動漫 (Anime Style)": ", anime style, Makoto Shinkai style, vibrant colors, incredibly detailed illustration, 8k, masterpiece, clean lines",
@@ -1265,10 +1257,8 @@ with tab_img:
                     st.error(msg)
                 else:
                     import random
-                    import time
                     from io import BytesIO
-                    import requests
-                    from PIL import Image
+                    from huggingface_hub import InferenceClient
 
                     final_prompt = raw_prompt.strip()
 
@@ -1303,76 +1293,40 @@ with tab_img:
 
                     final_prompt += style_prompts[style_option]
 
-                    with st.spinner("🚀 SDXL 繪畫中 (如果模型在休眠中需時約 10-20 秒)..."):
-                        seed = random.randint(1, 999999)
+                    with st.spinner("🚀 SDXL 繪畫中 (需時約 10-20 秒)..."):
+                        try:
+                            # 💡 使用官方 SDK 的 InferenceClient，自動繞過網路連接阻擋與通道問題
+                            client = InferenceClient(
+                                model="stabilityai/stable-diffusion-xl-base-1.0",
+                                token=hf_token.strip(),
+                            )
 
-                        # 💡 改用 Hugging Face 完全免費且支援 Serverless 推論的 SDXL 官方模型
-                        API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
-                        
-                        headers = {
-                            "Authorization": f"Bearer {hf_token.strip()}",
-                        }
-                        payload = {
-                            "inputs": final_prompt,
-                            "parameters": {
-                                "width": req_w,
-                                "height": req_h,
-                                "seed": seed,
-                            }
-                        }
+                            # 直接呼叫 text_to_image API，會自動回傳 PIL Image 物件
+                            image_result = client.text_to_image(final_prompt)
 
-                        image_bytes = None
-                        
-                        # 完整異常捕獲與自動重試邏輯
-                        for attempt in range(3):
-                            try:
-                                res = requests.post(API_URL, headers=headers, json=payload, timeout=60)
-                                
-                                if res.status_code == 200:
-                                    image_bytes = res.content
-                                    break
-                                elif res.status_code == 503:
-                                    st.caption("⏳ 繪圖伺服器啟動中，請稍候 10 秒...")
-                                    time.sleep(10)
-                                else:
-                                    st.error(f"❌ 請求失敗 (Code {res.status_code}): {res.text}")
-                                    break
-                            except requests.exceptions.ConnectionError:
-                                st.caption(f"⚠️ 網路連線微幅不穩定，正在嘗試第 {attempt + 1} 次連線...")
-                                time.sleep(3)
-                            except requests.exceptions.Timeout:
-                                st.caption("⏳ 生成響應超時，正在重試...")
-                                time.sleep(3)
-                            except Exception as e:
-                                st.error(f"❌ 連線發生未預期錯誤：{e}")
-                                break
-
-                        if image_bytes:
                             # 紀錄使用次數
                             users[st.session_state.user_email]["daily_usage"] = (
                                 users[st.session_state.user_email].get("daily_usage", 0) + 1
                             )
                             save_data(USERS_FILE, users)
 
-                            try:
-                                image_result = Image.open(BytesIO(image_bytes))
+                            st.success("🎉 SDXL 圖片生成完畢！")
+                            st.image(
+                                image_result,
+                                caption=f"最終優化提示詞: {final_prompt}",
+                                use_container_width=True,
+                            )
 
-                                st.success("🎉 SDXL 圖片生成完畢！")
-                                st.image(
-                                    image_result,
-                                    caption=f"最終優化提示詞: {final_prompt}",
-                                    use_container_width=True,
-                                )
+                            buf = BytesIO()
+                            image_result.save(buf, format="PNG")
+                            st.download_button(
+                                label="📥 下載高清原圖 (PNG)",
+                                data=buf.getvalue(),
+                                file_name=f"ai_sdxl_{random.randint(1, 999999)}.png",
+                                mime="image/png",
+                                use_container_width=True,
+                                key="dl_pro_img_btn",
+                            )
 
-                                buf = BytesIO()
-                                image_result.save(buf, format="PNG")
-                                st.download_button(
-                                    label="📥 下載高清原圖 (PNG)",
-                                    data=buf.getvalue(),
-                                    file_name=f"ai_sdxl_{seed}.png",
-                                    mime="image/png",
-                                    use_container_width=True,
-                                    key="dl_pro_img_btn",
-                                )
-                            except Exception as e:
-                                st.error(f"❌ 圖片解析失敗：API 回傳內容非圖片格式 ({e})")
+                        except Exception as e:
+                            st.error(f"❌ 繪圖失敗，詳細原因：{e}")
