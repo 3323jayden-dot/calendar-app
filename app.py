@@ -367,6 +367,33 @@ with tab_ai:
 # TAB 1: 📅 原生按鈕穩定版日曆（點擊 100% 觸發彈窗與完整編輯/刪除）
 # ------------------------------------------------------------------------------
 with tab_cal:
+    # 💥 關鍵修復：注入 CSS 強制 7 欄橫向平鋪，防止手機/窄螢幕垂直擠壓
+    st.markdown(
+        """
+        <style>
+        /* 1. 強制水平區塊不換行 */
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: nowrap !important;
+            gap: 2px !important;
+        }
+        /* 2. 強制每一個 Column 平均分配寬度，不設最小寬度 */
+        [data-testid="column"] {
+            min-width: 0px !important;
+            flex: 1 1 0px !important;
+        }
+        /* 3. 微調按鈕內距，確保日期文字放得下 */
+        [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-primary"] {
+            padding: 2px 0px !important;
+        }
+        [data-testid="stBaseButton-secondary"] p, [data-testid="stBaseButton-primary"] p {
+            font-size: 12px !important;
+            white-space: nowrap !important;
+        }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
     st.header("📅 視覺化月曆與行程表")
 
     if not st.session_state.logged_in:
@@ -384,7 +411,6 @@ with tab_cal:
     cal_options = ["🔒 個人專屬行事曆"] + [
         f"👥 {c['name']} (代碼: {c['code']})" for c in my_shared_cals
     ]
-
     with col_cal_sel:
         selected_cal_option = st.selectbox("📌 切換行事曆範疇", cal_options)
         if selected_cal_option == "🔒 個人專屬行事曆":
