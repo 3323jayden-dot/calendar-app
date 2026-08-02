@@ -1175,12 +1175,13 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6.ai圖片生成
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖與靈感工房 (Hugging Face FLUX.dev)")
-    st.caption("支援中文描述！呼叫原生 FLUX.dev 模型，生成 8K 級別大師質感圖像。")
+    st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1-dev)")
+    st.caption("支援中文描述！呼叫原生 FLUX.1-dev 引擎，生成 8K 級別大師質感圖像。")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
     with col_left:
+        # 1. 提示詞輸入 (支援中文)
         raw_prompt = st.text_area(
             "✍️ 輸入你想畫的畫面 (支援中文或英文)",
             placeholder="例如：一隻戴著太陽眼鏡的柴犬在夏威夷海灘喝椰子水，日光充足，高清寫實",
@@ -1195,15 +1196,7 @@ with tab_img:
             )
 
     with col_right:
-        # 讓使用者設定自己的 Token，或由系統統一提供
-        hf_token_input = st.text_input(
-            "🔑 Hugging Face Token",
-            value=globals().get("HF_TOKEN", ""),
-            type="password",
-            help="請貼上以 hf_ 開頭的 Token",
-            key="hf_token_field"
-        )
-
+        # 2. 藝術風格選擇
         style_option = st.selectbox(
             "🎭 選擇藝術風格",
             [
@@ -1218,6 +1211,7 @@ with tab_img:
             key="img_style_select",
         )
 
+        # 3. 畫面比例選擇
         aspect_ratio = st.selectbox(
             "📐 圖片比例",
             [
@@ -1229,7 +1223,7 @@ with tab_img:
             key="img_ratio_select",
         )
 
-    # 尺寸自動換算
+    # 尺寸自動換算 (優化解析度)
     ratio_map = {
         "1:1 (正方形 - 社群貼文/大頭貼)": (1024, 1024),
         "16:9 (橫向 - 桌布/YouTube 縮圖)": (1024, 576),
@@ -1256,113 +1250,115 @@ with tab_img:
     if generate_btn:
         if not raw_prompt.strip():
             st.warning("⚠️ 請先輸入畫面描述內容！")
-        elif not hf_token_input.strip():
-            st.error("❌ 請輸入你的 Hugging Face Access Token！")
         else:
-            allowed, msg, usage, limit = check_and_update_usage(
-                st.session_state.user_email
-            )
+            # 💡 優先從 st.secrets 取得 Token，若本地開發沒有 secrets 則嘗試讀取全域變數
+            hf_token = st.secrets.get("HF_TOKEN", globals().get("HF_TOKEN", ""))
 
-            if not allowed:
-                st.error(msg)
+            if not hf_token:
+                st.error("❌ 系統找不到 HF_TOKEN！請確認 Streamlit Secrets 中有設定 `HF_TOKEN`。")
             else:
-                import random
-                import time
-                from io import BytesIO
-                import requests
-                from PIL import Image
-
-                final_prompt = raw_prompt.strip()
-
-                # Groq 提示詞優化
-                groq_client = (
-                    globals().get("client")
-                    or globals().get("groq_client")
-                    or st.session_state.get("groq_client")
+                allowed, msg, usage, limit = check_and_update_usage(
+                    st.session_state.user_email
                 )
 
-                if use_magic_prompt and groq_client:
-                    try:
-                        with st.spinner("🪄 Groq AI 正在構思藝術提示詞..."):
-                            magic_sys = (
-                                "You are an expert AI Image Prompt Engineer."
-                                " Convert the user's input into a highly detailed, vivid English text prompt"
-                                " optimized for FLUX.1 image generation. Output ONLY the refined English prompt, nothing else."
-                            )
-                            response = groq_client.chat.completions.create(
-                                model="llama-3.3-70b-versatile",
-                                messages=[
-                                    {"role": "system", "content": magic_sys},
-                                    {"role": "user", "content": raw_prompt},
-                                ],
-                                temperature=0.7,
-                                max_tokens=250,
-                            )
-                            final_prompt = response.choices[0].message.content.strip()
-                            st.info(f"🪄 **Groq 魔法提示詞**：`{final_prompt}`")
-                    except Exception as e:
-                        st.caption(f"提示詞優化微幅跳過 ({e})")
+                if not allowed:
+                    st.error(msg)
+                else:
+                    import random
+                    import time
+                    from io import BytesIO
+                    import requests
+                    from PIL import Image
 
-                final_prompt += style_prompts[style_option]
+                    final_prompt = raw_prompt.strip()
 
-                with st.spinner("🚀 原生 FLUX.1-dev 繪畫中 (若模型正在喚醒需時約 15-30 秒)..."):
-                    seed = random.randint(1, 999999)
-                    
-                    # 呼叫 HF API
-                    API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev"
-                    headers = {"Authorization": f"Bearer {hf_token_input.strip()}"}
-                    payload = {
-                        "inputs": final_prompt,
-                        "parameters": {
-                            "width": req_w,
-                            "height": req_h,
-                            "seed": seed,
-                        }
-                    }
+                    # Groq 提示詞優化
+                    groq_client = (
+                        globals().get("client")
+                        or globals().get("groq_client")
+                        or st.session_state.get("groq_client")
+                    )
 
-                    image_bytes = None
-                    # 最多重試 3 次處理模型休眠 (503) 狀況
-                    for attempt in range(3):
+                    if use_magic_prompt and groq_client:
                         try:
-                            res = requests.post(API_URL, headers=headers, json=payload, timeout=60)
-                            
-                            if res.status_code == 200:
-                                image_bytes = res.content
-                                break
-                            elif res.status_code == 503:
-                                # 503 代表模型正在從冷啟動中喚醒
-                                st.caption("⏳ 繪圖模型正在冷啟動中，請稍候 10 秒...")
-                                time.sleep(10)
-                            else:
-                                st.error(f"❌ 請求失敗 (Code {res.status_code}): {res.text}")
-                                break
-                        except requests.exceptions.Timeout:
-                            st.caption("⏳ 生成時間較長，正在重試...")
-                            time.sleep(3)
+                            with st.spinner("🪄 Groq AI 正在構思藝術提示詞..."):
+                                magic_sys = (
+                                    "You are an expert AI Image Prompt Engineer."
+                                    " Convert the user's input into a highly detailed, vivid English text prompt"
+                                    " optimized for FLUX.1 image generation. Output ONLY the refined English prompt, nothing else."
+                                )
+                                response = groq_client.chat.completions.create(
+                                    model="llama-3.3-70b-versatile",
+                                    messages=[
+                                        {"role": "system", "content": magic_sys},
+                                        {"role": "user", "content": raw_prompt},
+                                    ],
+                                    temperature=0.7,
+                                    max_tokens=250,
+                                )
+                                final_prompt = response.choices[0].message.content.strip()
+                                st.info(f"🪄 **Groq 魔法提示詞**：`{final_prompt}`")
+                        except Exception as e:
+                            st.caption(f"提示詞優化微幅跳過 ({e})")
 
-                    if image_bytes:
-                        # 紀錄用量
-                        users[st.session_state.user_email]["daily_usage"] = (
-                            users[st.session_state.user_email].get("daily_usage", 0) + 1
-                        )
-                        save_data(USERS_FILE, users)
+                    final_prompt += style_prompts[style_option]
 
-                        image_result = Image.open(BytesIO(image_bytes))
+                    with st.spinner("🚀 原生 FLUX.1-dev 繪畫中 (需時約 15-30 秒)..."):
+                        seed = random.randint(1, 999999)
 
-                        st.success("🎉 FLUX.1-dev 頂級 8K 圖片生成完畢！")
-                        st.image(
-                            image_result,
-                            caption=f"最終優化提示詞: {final_prompt}",
-                            use_container_width=True,
-                        )
+                        API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev"
+                        headers = {"Authorization": f"Bearer {hf_token.strip()}"}
+                        payload = {
+                            "inputs": final_prompt,
+                            "parameters": {
+                                "width": req_w,
+                                "height": req_h,
+                                "seed": seed,
+                            }
+                        }
 
-                        buf = BytesIO()
-                        image_result.save(buf, format="PNG")
-                        st.download_button(
-                            label="📥 下載 8K 高清原圖 (PNG)",
-                            data=buf.getvalue(),
-                            file_name=f"ai_flux_pro_{seed}.png",
-                            mime="image/png",
-                            use_container_width=True,
-                            key="dl_pro_img_btn",
-                        )
+                        image_bytes = None
+                        # 自動重試機制（解決 503 冷啟動）
+                        for attempt in range(3):
+                            try:
+                                res = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+                                
+                                if res.status_code == 200:
+                                    image_bytes = res.content
+                                    break
+                                elif res.status_code == 503:
+                                    st.caption("⏳ 繪圖模型正在啟動中，請稍候 10 秒...")
+                                    time.sleep(10)
+                                else:
+                                    st.error(f"❌ 請求失敗 (Code {res.status_code}): {res.text}")
+                                    break
+                            except requests.exceptions.Timeout:
+                                st.caption("⏳ 生成時間較長，正在重試...")
+                                time.sleep(3)
+
+                        if image_bytes:
+                            # 紀錄用量
+                            users[st.session_state.user_email]["daily_usage"] = (
+                                users[st.session_state.user_email].get("daily_usage", 0) + 1
+                            )
+                            save_data(USERS_FILE, users)
+
+                            image_result = Image.open(BytesIO(image_bytes))
+
+                            st.success("🎉 FLUX.1-dev 頂級 8K 圖片生成完畢！")
+                            st.image(
+                                image_result,
+                                caption=f"最終優化提示詞: {final_prompt}",
+                                use_container_width=True,
+                            )
+
+                            buf = BytesIO()
+                            image_result.save(buf, format="PNG")
+                            st.download_button(
+                                label="📥 下載 8K 高清原圖 (PNG)",
+                                data=buf.getvalue(),
+                                file_name=f"ai_flux_pro_{seed}.png",
+                                mime="image/png",
+                                use_container_width=True,
+                                key="dl_pro_img_btn",
+                            )
