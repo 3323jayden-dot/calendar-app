@@ -1,5 +1,18 @@
 import streamlit as st
-
+import json
+import os
+import io
+import zipfile
+import re
+from datetime import datetime, date
+import calendar
+from PIL import Image, ImageEnhance, ImageOps
+import pandas as pd
+import pypdf
+import calendar
+from datetime import date
+import streamlit as st
+from groq import Groq  # 1. 記得在最上方 import groq
 # ------------------------------------------------------------------------------
 # 1. 自動保持登入邏輯（使用 Streamlit 原生 st.query_params）
 # ------------------------------------------------------------------------------
@@ -17,26 +30,6 @@ if "user" in query_params and not st.session_state.logged_in:
         st.session_state.logged_in = True
         st.session_state.user_email = saved_user
 
-
-
-
-
-
-
-
-
-
-import streamlit as st
-import json
-import os
-import io
-import zipfile
-import re
-from datetime import datetime, date
-import calendar
-from PIL import Image, ImageEnhance, ImageOps
-import pandas as pd
-import pypdf
 # ------------------------------------------------------------------------------
 # 資料載入與儲存輔助 (請確認檔名與變數名稱)
 # ------------------------------------------------------------------------------
