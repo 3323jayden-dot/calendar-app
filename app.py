@@ -453,7 +453,7 @@ with tab_ai:
     html_items = ['<div class="chat-scroll-container" id="chat-box">']
     if not st.session_state.messages:
         html_items.append(
-            f'<div class="welcome-box"><div class="welcome-title">"print(short_name)"，盡情與 AI 規劃行程吧！</div><div class="welcome-sub">當前模式：【{ai_mode}】｜ 可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div></div>'
+            f'<div class="welcome-box"><div class="welcome-title">(print(short_name))，盡情與 AI 規劃行程吧！</div><div class="welcome-sub">當前模式：【{ai_mode}】｜ 可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div></div>'
         )
     else:
         for msg in st.session_state.messages:
