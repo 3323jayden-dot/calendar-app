@@ -320,13 +320,26 @@ with tab_cal:
     else:
         active_events = [e for e in events if e.get("cal_code") == current_cal_code]
 
-    # --- 3. 年月選擇 ---
-    c_y, c_m, _ = st.columns([1, 1, 2])
-    with c_y:
-        sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
-    with c_m:
-        sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
+ # ------------------------------------------------------------------------------
+# 2. 年月選擇區塊（微調 + - 按鈕位置往上對齊）
+# ------------------------------------------------------------------------------
+st.markdown("""
+    <style>
+    /* 修正 st.number_input 的 + - 按鈕垂直位置 */
+    div[data-testid="stNumberInputStepDown"], 
+    div[data-testid="stNumberInputStepUp"] {
+        top: 0px !important;            /* 往上移動 */
+        align-self: center !important;  /* 垂直置中 */
+        margin-bottom: 2px !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
+c_y, c_m, _ = st.columns([1, 1, 2])
+with c_y:
+    sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
+with c_m:
+    sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
     # --- 4. 行程對話框 ---
     @st.dialog("📅 行程安排與管理", width="large")
     def show_event_dialog(selected_date_str):
