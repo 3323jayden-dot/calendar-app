@@ -7,3 +7,5 @@ streamlit-cookies-controller
 groq
 extra-streamlit-components
 requests
+huggingface_hub
+Pillow
