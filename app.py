@@ -1175,8 +1175,8 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6.ai圖片生成
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1-dev)")
-    st.caption("支援中文描述！呼叫原生 FLUX.1-dev 引擎，生成 8K 級別大師質感圖像。")
+    st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1)")
+    st.caption("支援中文描述！呼叫原生 FLUX.1 引擎，生成 8K 級別大師質感圖像。")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
@@ -1251,11 +1251,11 @@ with tab_img:
         if not raw_prompt.strip():
             st.warning("⚠️ 請先輸入畫面描述內容！")
         else:
-            # 💡 優先從 st.secrets 取得 Token，若本地開發沒有 secrets 則嘗試讀取全域變數
+            # 💡 從 Secrets 自動讀取 Token
             hf_token = st.secrets.get("HF_TOKEN", globals().get("HF_TOKEN", ""))
 
             if not hf_token:
-                st.error("❌ 系統找不到 HF_TOKEN！請確認 Streamlit Secrets 中有設定 `HF_TOKEN`。")
+                st.error("❌ 系統找不到 HF_TOKEN！請確認 Streamlit Secrets 中已設定 `HF_TOKEN`。")
             else:
                 allowed, msg, usage, limit = check_and_update_usage(
                     st.session_state.user_email
@@ -1303,11 +1303,16 @@ with tab_img:
 
                     final_prompt += style_prompts[style_option]
 
-                    with st.spinner("🚀 原生 FLUX.1-dev 繪畫中 (需時約 15-30 秒)..."):
+                    with st.spinner("🚀 原生 FLUX.1 繪畫中 (需時約 10-25 秒)..."):
                         seed = random.randint(1, 999999)
 
-                        API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev"
-                        headers = {"Authorization": f"Bearer {hf_token.strip()}"}
+                        # 使用最新 Router API Endpoint
+                        API_URL = "https://router.huggingface.co/hf-inference/v1/models/black-forest-labs/FLUX.1-schnell"
+                        
+                        headers = {
+                            "Authorization": f"Bearer {hf_token.strip()}",
+                            "Content-Type": "application/json"
+                        }
                         payload = {
                             "inputs": final_prompt,
                             "parameters": {
@@ -1318,7 +1323,8 @@ with tab_img:
                         }
 
                         image_bytes = None
-                        # 自動重試機制（解決 503 冷啟動）
+                        
+                        # 完整異常捕獲與自動重試邏輯
                         for attempt in range(3):
                             try:
                                 res = requests.post(API_URL, headers=headers, json=payload, timeout=60)
@@ -1327,38 +1333,47 @@ with tab_img:
                                     image_bytes = res.content
                                     break
                                 elif res.status_code == 503:
-                                    st.caption("⏳ 繪圖模型正在啟動中，請稍候 10 秒...")
+                                    st.caption("⏳ 繪圖伺服器啟動中，請稍候 10 秒...")
                                     time.sleep(10)
                                 else:
                                     st.error(f"❌ 請求失敗 (Code {res.status_code}): {res.text}")
                                     break
-                            except requests.exceptions.Timeout:
-                                st.caption("⏳ 生成時間較長，正在重試...")
+                            except requests.exceptions.ConnectionError:
+                                st.caption(f"⚠️ 網路連線微幅不穩定，正在嘗試第 {attempt + 1} 次連線...")
                                 time.sleep(3)
+                            except requests.exceptions.Timeout:
+                                st.caption("⏳ 生成響應超時，正在重試...")
+                                time.sleep(3)
+                            except Exception as e:
+                                st.error(f"❌ 連線發生未預期錯誤：{e}")
+                                break
 
                         if image_bytes:
-                            # 紀錄用量
+                            # 紀錄使用次數
                             users[st.session_state.user_email]["daily_usage"] = (
                                 users[st.session_state.user_email].get("daily_usage", 0) + 1
                             )
                             save_data(USERS_FILE, users)
 
-                            image_result = Image.open(BytesIO(image_bytes))
+                            try:
+                                image_result = Image.open(BytesIO(image_bytes))
 
-                            st.success("🎉 FLUX.1-dev 頂級 8K 圖片生成完畢！")
-                            st.image(
-                                image_result,
-                                caption=f"最終優化提示詞: {final_prompt}",
-                                use_container_width=True,
-                            )
+                                st.success("🎉 FLUX.1 頂級圖片生成完畢！")
+                                st.image(
+                                    image_result,
+                                    caption=f"最終優化提示詞: {final_prompt}",
+                                    use_container_width=True,
+                                )
 
-                            buf = BytesIO()
-                            image_result.save(buf, format="PNG")
-                            st.download_button(
-                                label="📥 下載 8K 高清原圖 (PNG)",
-                                data=buf.getvalue(),
-                                file_name=f"ai_flux_pro_{seed}.png",
-                                mime="image/png",
-                                use_container_width=True,
-                                key="dl_pro_img_btn",
-                            )
+                                buf = BytesIO()
+                                image_result.save(buf, format="PNG")
+                                st.download_button(
+                                    label="📥 下載高清原圖 (PNG)",
+                                    data=buf.getvalue(),
+                                    file_name=f"ai_flux_{seed}.png",
+                                    mime="image/png",
+                                    use_container_width=True,
+                                    key="dl_pro_img_btn",
+                                )
+                            except Exception as e:
+                                st.error(f"❌ 圖片解析失敗：API 回傳的可能不是圖片格式內容。 ({e})")
