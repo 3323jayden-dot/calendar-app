@@ -1175,8 +1175,8 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6.ai圖片生成
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1)")
-    st.caption("支援中文描述！呼叫原生 FLUX.1 引擎，生成 8K 級別大師質感圖像。")
+    st.header("🎨 AI 頂級繪圖與靈感工房 (SDXL 頂級版)")
+    st.caption("支援中文描述！呼叫原生 Stable Diffusion XL 引擎，生成大師質感圖像。")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
@@ -1223,7 +1223,7 @@ with tab_img:
             key="img_ratio_select",
         )
 
-    # 尺寸自動換算 (優化解析度)
+    # 尺寸自動換算
     ratio_map = {
         "1:1 (正方形 - 社群貼文/大頭貼)": (1024, 1024),
         "16:9 (橫向 - 桌布/YouTube 縮圖)": (1024, 576),
@@ -1241,7 +1241,7 @@ with tab_img:
     }
 
     generate_btn = st.button(
-        "🚀 立即生成 8K 畫質圖片",
+        "🚀 立即生成高畫質圖片",
         use_container_width=True,
         type="primary",
         key="gen_hf_img_btn",
@@ -1285,7 +1285,7 @@ with tab_img:
                                 magic_sys = (
                                     "You are an expert AI Image Prompt Engineer."
                                     " Convert the user's input into a highly detailed, vivid English text prompt"
-                                    " optimized for FLUX.1 image generation. Output ONLY the refined English prompt, nothing else."
+                                    " optimized for Stable Diffusion XL image generation. Output ONLY the refined English prompt, nothing else."
                                 )
                                 response = groq_client.chat.completions.create(
                                     model="llama-3.3-70b-versatile",
@@ -1303,15 +1303,14 @@ with tab_img:
 
                     final_prompt += style_prompts[style_option]
 
-                    with st.spinner("🚀 原生 FLUX.1 繪畫中 (需時約 10-25 秒)..."):
+                    with st.spinner("🚀 SDXL 繪畫中 (如果模型在休眠中需時約 10-20 秒)..."):
                         seed = random.randint(1, 999999)
 
-                        # 使用最新 Router API Endpoint
-                        API_URL = "https://router.huggingface.co/hf-inference/v1/models/black-forest-labs/FLUX.1-schnell"
+                        # 💡 改用 Hugging Face 完全免費且支援 Serverless 推論的 SDXL 官方模型
+                        API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
                         
                         headers = {
                             "Authorization": f"Bearer {hf_token.strip()}",
-                            "Content-Type": "application/json"
                         }
                         payload = {
                             "inputs": final_prompt,
@@ -1358,7 +1357,7 @@ with tab_img:
                             try:
                                 image_result = Image.open(BytesIO(image_bytes))
 
-                                st.success("🎉 FLUX.1 頂級圖片生成完畢！")
+                                st.success("🎉 SDXL 圖片生成完畢！")
                                 st.image(
                                     image_result,
                                     caption=f"最終優化提示詞: {final_prompt}",
@@ -1370,10 +1369,10 @@ with tab_img:
                                 st.download_button(
                                     label="📥 下載高清原圖 (PNG)",
                                     data=buf.getvalue(),
-                                    file_name=f"ai_flux_{seed}.png",
+                                    file_name=f"ai_sdxl_{seed}.png",
                                     mime="image/png",
                                     use_container_width=True,
                                     key="dl_pro_img_btn",
                                 )
                             except Exception as e:
-                                st.error(f"❌ 圖片解析失敗：API 回傳的可能不是圖片格式內容。 ({e})")
+                                st.error(f"❌ 圖片解析失敗：API 回傳內容非圖片格式 ({e})")
