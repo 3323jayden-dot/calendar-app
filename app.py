@@ -1190,10 +1190,12 @@ with tab_img:
 
     with col_config:
         img_width = st.selectbox(
-            "圖片寬度", [512, 768, 1024], index=2, key="img_w"
+            "圖片寬度", [1024, 768, 512], index=0, key="img_w",
+            help="💡 建議使用 1024，FLUX 模型相容性最佳！"
         )
         img_height = st.selectbox(
-            "圖片高度", [512, 768, 1024], index=2, key="img_h"
+            "圖片高度", [1024, 768, 512], index=0, key="img_h",
+            help="💡 建議使用 1024，FLUX 模型相容性最佳！"
         )
         model_type = st.selectbox(
             "風格模型",
@@ -1225,7 +1227,6 @@ with tab_img:
             else:
                 with st.spinner("🎨 AI 正在精心繪製圖片中，請稍候..."):
                     import random
-                    import time
                     import urllib.parse
                     from io import BytesIO
                     import requests
@@ -1234,48 +1235,48 @@ with tab_img:
                     seed = random.randint(1, 999999)
                     encoded_prompt = urllib.parse.quote(prompt.strip())
 
-                    # 擬真 Header 避免被認定為爬蟲
                     headers = {
                         "User-Agent": (
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                             " AppleWebKit/537.36 (KHTML, like Gecko)"
                             " Chrome/122.0.0.0 Safari/537.36"
                         )
                     }
 
-                    # 嘗試生成 (最多自動重試 3 次)
+                    # 💡 關鍵技巧：固定向 API 請求 1024 原生最佳尺寸，避免 512 造成伺服器拒絕
+                    req_w = 1024 if img_width < 1024 else img_width
+                    req_h = 1024 if img_height < 1024 else img_height
+
                     image_result = None
                     urls_to_try = [
-                        # 主要 FLUX 路線
-                        f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&model={model_type}&nologo=true&enhance=true",
-                        # 備用路線 1
-                        f"https://pollinations.ai/p/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&nologo=true",
-                        # 備用路線 2 (基礎快取)
-                        f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}",
+                        # 主要路線 (FLUX 1024 原生)
+                        f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={req_w}&height={req_h}&seed={seed}&model={model_type}&nologo=true&enhance=true",
+                        # 備用路線
+                        f"https://pollinations.ai/p/{encoded_prompt}?width={req_w}&height={req_h}&seed={seed}&nologo=true",
                     ]
 
                     for url in urls_to_try:
                         try:
-                            res = requests.get(url, headers=headers, timeout=25)
-                            # 檢查回傳標頭是否為圖片
+                            res = requests.get(url, headers=headers, timeout=35)
                             if (
                                 res.status_code == 200
-                                and "image"
-                                in res.headers.get("Content-Type", "").lower()
+                                and "image" in res.headers.get("Content-Type", "").lower()
                             ):
-                                image_result = Image.open(BytesIO(res.content))
-                                break  # 成功取得圖片，跳出迴圈
+                                img = Image.open(BytesIO(res.content))
+                                
+                                # 如果使用者選了小尺寸 (例如 512)，我們在本地自動幫忙 resize，確保不崩潰
+                                if (img_width, img_height) != (req_w, req_h):
+                                    img = img.resize((img_width, img_height), Image.Resampling.LANCZOS)
+                                
+                                image_result = img
+                                break
                         except Exception:
-                            continue  # 失敗則嘗試下一個 URL
+                            continue
 
-                    # 判斷最終結果
                     if image_result:
                         # 紀錄用量
                         users[st.session_state.user_email]["daily_usage"] = (
-                            users[st.session_state.user_email].get(
-                                "daily_usage", 0
-                            )
-                            + 1
+                            users[st.session_state.user_email].get("daily_usage", 0) + 1
                         )
                         save_data(USERS_FILE, users)
 
@@ -1298,6 +1299,5 @@ with tab_img:
                         )
                     else:
                         st.error(
-                            "❌ 繪圖伺服器目前流量較大無回應，請稍微修改提示詞或點擊「🚀"
-                            " 開始生成圖片」再試一次！"
+                            "❌ 繪圖伺服器目前較忙碌，請稍等幾秒後再試一次！"
                         )
