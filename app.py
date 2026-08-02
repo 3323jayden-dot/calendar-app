@@ -594,7 +594,7 @@ with tab_cal:
         else:
             st.info("🔒 請先登入帳號後新增行程。")
 
-    # 🗓️ 日曆渲染 (使用 Streamlit 原生 button 搭配 HTML 格式化)
+   # 🗓️ 日曆渲染（修正 HTML 顏色與橫向排版）
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
 
@@ -602,7 +602,7 @@ with tab_cal:
     w_cols = st.columns(7)
     for idx, w in enumerate(weekdays):
         w_cols[idx].markdown(
-            f"<div style='text-align:center; font-weight:bold; color:#718096; margin-bottom:6px;'>週{w}</div>",
+            f"<div style='text-align:center; font-weight:bold; color:#5f6368; margin-bottom:6px;'>週{w}</div>",
             unsafe_allow_html=True,
         )
 
@@ -616,23 +616,40 @@ with tab_cal:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
                 day_evs = [e for e in active_events if e.get("date") == day_str]
 
-                # 排版組合：大數字日期 + 淡紅色行程標籤
-                button_label = f"**:blue[{day}]**\n\n"
+                # 組合行程文字：有行程時顯示粉紅底紅字標籤
                 if day_evs:
                     first_title = day_evs[0]["title"]
-                    if len(first_title) > 5:
-                        first_title = first_title[:5] + "..."
-                    button_label += f"📌 :{first_title}:"
-                    if len(day_evs) > 1:
-                        button_label += f" *(+{len(day_evs)-1})*"
+                    if len(first_title) > 4:
+                        first_title = first_title[:4] + ".."
+                    
+                    more_count = f" (+{len(day_evs)-1})" if len(day_evs) > 1 else ""
+                    
+                    # 使用 HTML 設定「粉紅背景 + 紅字」膠囊標籤
+                    event_html = f"""
+                    <div style="font-size: 16px; font-weight: bold; color: #1a73e8; margin-bottom: 4px;">{day}</div>
+                    <div style="background-color: #fce8e6; color: #d93025; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 6px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        📌 {first_title}{more_count}
+                    </div>
+                    """
+                else:
+                    event_html = f"""
+                    <div style="font-size: 16px; font-weight: bold; color: #3c4043;">{day}</div>
+                    """
 
-                # 點擊按鈕 100% 秒發觸發對話框
-                if cols[idx].button(
-                    button_label,
-                    key=f"btn_day_{day_str}",
-                    use_container_width=True,
-                ):
-                    open_day_dialog(day_str)
+                # 渲染卡片按鈕
+                with cols[idx]:
+                    # 顯示漂亮的卡片視覺
+                    st.markdown(
+                        f"""
+                        <div style="border: 1px solid #e0e0e0; border-radius: 10px; padding: 8px 4px; background-color: #ffffff; min-height: 75px; text-align: left; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                            {event_html}
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    # 點擊開啟編輯對話框
+                    if st.button("查看 / 編輯", key=f"btn_day_{day_str}", use_container_width=True):
+                        open_day_dialog(day_str)
 # ------------------------------------------------------------------------------
 # TAB 2~5 保持工具完整
 # ------------------------------------------------------------------------------
