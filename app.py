@@ -14,6 +14,10 @@ from PIL import Image, ImageEnhance, ImageOps
 import pypdf
 import streamlit as st
 import streamlit.components.v1 as components
+import streamlit as st
+import requests
+from io import BytesIO
+from PIL import Image
 
 # ==============================================================================
 # 0. 基本頁面配置與檔案設定
@@ -1175,174 +1179,84 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6.ai圖片生成
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1 精確版)")
-    st.caption("支援中文描述！呼叫原生 FLUX.1 極速引擎，生成大師質感圖像。已優化提示詞邏輯與語法！")
+    st.header("🎨 AI 頂級繪圖工房 (專屬 GPU 連線版)")
+    st.caption("連線至你的 Colab 免費 GPU 後端，100% 精準生成、絕不偷換模型亂畫！")
+
+    # API 網址設定區
+    api_url = st.text_input(
+        "🔗 後端 API 網址",
+        value="https://demotion-crisped-pesticide.ngrok-free.dev",
+        help="請確認 Colab 程式正在執行中",
+        key="colab_api_url_input"
+    )
 
     col_left, col_right = st.columns([1.8, 1.2])
 
     with col_left:
-        # 1. 提示詞輸入 (支援中文)
         raw_prompt = st.text_area(
             "✍️ 輸入你想畫的畫面 (支援中文或英文)",
             placeholder="例如：一隻戴著太陽眼鏡的柴犬在夏威夷海灘喝椰子水，日光充足，高清寫實",
             height=120,
-            key="img_raw_prompt",
+            key="colab_raw_prompt",
         )
-
-        col_btn1, col_btn2 = st.columns([1, 1])
-        with col_btn1:
-            use_magic_prompt = st.checkbox(
-                "✨ 開啟 Groq 精確翻譯大師 (只翻譯不亂加細節)", value=True, key="img_use_magic"
-            )
 
     with col_right:
-        # 2. 藝術風格選擇
+        # Style 選項可視需要加入提示詞增強
         style_option = st.selectbox(
-            "🎭 選擇藝術風格",
-            [
-                "自然寫實 (Cinematic Realism)",
-                "日系動漫 (Anime Style)",
-                "賽博朋克 (Cyberpunk Neon)",
-                "3D 盲盒雕塑 (3D Cute Render)",
-                "奇幻水彩 (Fantasy Watercolor)",
-                "無風格 (依提示詞自訂)",
-            ],
+            "🎭 選擇風格補強",
+            ["預設原汁原味", "高清寫實 (Photorealistic)", "動漫風格 (Anime)", "賽博朋克 (Cyberpunk)"],
             index=0,
-            key="img_style_select",
+            key="colab_style_select",
         )
 
-        # 3. 畫面比例選擇
-        aspect_ratio = st.selectbox(
-            "📐 圖片比例",
-            [
-                "1:1 (正方形 - 社群貼文/大頭貼)",
-                "16:9 (橫向 - 桌布/YouTube 縮圖)",
-                "9:16 (縱向 - 手機桌布/Reels/Threads)",
-            ],
-            index=0,
-            key="img_ratio_select",
-        )
-
-    # 尺寸自動換算
-    ratio_map = {
-        "1:1 (正方形 - 社群貼文/大頭貼)": (1024, 1024),
-        "16:9 (橫向 - 桌布/YouTube 縮圖)": (1024, 576),
-        "9:16 (縱向 - 手機桌布/Reels/Threads)": (576, 1024),
-    }
-    req_w, req_h = ratio_map[aspect_ratio]
-
-    style_prompts = {
-        "自然寫實 (Cinematic Realism)": ", 8k resolution, cinematic lighting, photorealistic, highly detailed, professional photography, masterwork",
-        "日系動漫 (Anime Style)": ", anime style, vibrant colors, detailed illustration, masterpiece, clean lines, Makoto Shinkai style",
-        "賽博朋克 (Cyberpunk Neon)": ", cyberpunk style, glowing neon lights, futuristic city background, atmospheric lighting, highly detailed, atmospheric",
-        "3D 盲盒雕塑 (3D Cute Render)": ", cute 3D render, Pop Mart style, smooth lighting, pastel colors, clay texture, Pop Mart style blind box",
-        "奇幻水彩 (Fantasy Watercolor)": ", fantasy watercolor painting, soft brush strokes, dreamy color palette, artistic composition, incredible details",
-        "無風格 (依提示詞自訂)": "",
+    style_suffix = {
+        "預設原汁原味": "",
+        "高清寫實 (Photorealistic)": ", photorealistic, 8k resolution, highly detailed, realistic light",
+        "動漫風格 (Anime)": ", anime style, vibrant colors, detailed illustration",
+        "賽博朋克 (Cyberpunk)": ", cyberpunk style, neon lights, futuristic background",
     }
 
-    generate_btn = st.button(
-        "🚀 立即生成高畫質圖片",
-        use_container_width=True,
-        type="primary",
-        key="gen_pro_img_btn",
-    )
+    generate_btn = st.button("🚀 立即生成圖片", type="primary", use_container_width=True)
 
     if generate_btn:
-        if not raw_prompt.strip():
-            st.warning("⚠️ 請先輸入畫面描述內容！")
+        if not api_url.strip():
+            st.error("❌ 請輸入後端 API 網址！")
+        elif not raw_prompt.strip():
+            st.warning("⚠️ 請輸入想要生成的描述內容！")
         else:
-            # 💡 從 Secrets 自動讀取 Token
-            hf_token = st.secrets.get("HF_TOKEN", globals().get("HF_TOKEN", ""))
+            final_prompt = f"{raw_prompt.strip()}{style_suffix[style_option]}"
+            
+            # 清理網址末端斜線
+            target_url = api_url.strip().rstrip("/") + "/generate"
 
-            if not hf_token:
-                st.error("❌ 系統找不到 HF_TOKEN！請確認 Streamlit Secrets 中已設定 `HF_TOKEN`。")
-            else:
-                allowed, msg, usage, limit = check_and_update_usage(
-                    st.session_state.user_email
-                )
-
-                if not allowed:
-                    st.error(msg)
-                else:
-                    import random
-                    from io import BytesIO
-                    from huggingface_hub import InferenceClient
-
-                    final_user_content = raw_prompt.strip()
-
-                    # Groq 提示詞優化邏輯 (只翻譯，不亂加細節)
-                    groq_client = (
-                        globals().get("client")
-                        or globals().get("groq_client")
-                        or st.session_state.get("groq_client")
+            with st.spinner("🚀 Google GPU 繪製中 (約 3~5 秒)..."):
+                try:
+                    # 呼叫你的 Colab 後端
+                    response = requests.post(
+                        target_url,
+                        json={"prompt": final_prompt},
+                        headers={"ngrok-skip-browser-warning": "true"}, # 繞過 ngrok 警告頁面
+                        timeout=60
                     )
 
-                    if use_magic_prompt and groq_client:
-                        try:
-                            with st.spinner("🪄 Groq AI 正在構思藝術提示詞 (精確翻譯不加戲版)..."):
-                                magic_sys = (
-                                    "You are an expert AI Image Prompt Translator. "
-                                    "Your sole task is to accurately translate the user's input from Chinese into a concise, vivid English text prompt. "
-                                    "Keep the translated English as close to the original user description as possible. "
-                                    "DO NOT add any extra details, stylistic interpretations, backgrounds, or artistic elements that the user did not explicitly mention. "
-                                    "If the user did not specify a style, DO NOT add one. "
-                                    "DO NOT focus on things like ancient art, hair buns, construction cranes, or any other elements unless mentioned by the user. "
-                                    "Provide ONLY the English translation, nothing else."
-                                )
-                                response = groq_client.chat.completions.create(
-                                    model="llama-3.3-70b-versatile",
-                                    messages=[
-                                        {"role": "system", "content": magic_sys},
-                                        {"role": "user", "content": raw_prompt},
-                                    ],
-                                    temperature=0.3,
-                                    max_tokens=250,
-                                )
-                                final_user_content = response.choices[0].message.content.strip()
-                                st.info(f"🪄 **Groq 魔法提示詞**：`{final_user_content}`")
-                        except Exception as e:
-                            st.caption(f"提示詞優化微幅跳過 ({e})")
+                    if response.status_code == 200:
+                        image_result = Image.open(BytesIO(response.content))
+                        
+                        st.success("🎉 生成成功！100% 精確符合指令！")
+                        st.image(image_result, caption=f"提示詞: {final_prompt}", use_container_width=True)
 
-                    full_final_prompt = f"{final_user_content}{style_prompts[style_option]}"
+                        # 下載按鈕
+                        buf = BytesIO()
+                        image_result.save(buf, format="PNG")
+                        st.download_button(
+                            label="📥 下載高清原圖 (PNG)",
+                            data=buf.getvalue(),
+                            file_name="gpu_generated.png",
+                            mime="image/png",
+                            use_container_width=True,
+                        )
+                    else:
+                        st.error(f"❌ 後端回應異常 (HTTP {response.status_code})，請檢查 Colab 程式狀態。")
 
-                    with st.spinner("🚀 原生 FLUX.1 繪畫中 (需時約 10-20 秒)..."):
-                        try:
-                            # 初始化 InferenceClient
-                            client = InferenceClient(
-                                token=hf_token.strip(),
-                            )
-
-                            # 💡 修正：移除包在內層的 parameters 字典，改直接傳入 height 與 width
-                            image_result = client.text_to_image(
-                                prompt=full_final_prompt,
-                                model="black-forest-labs/FLUX.1-schnell",
-                                height=req_h,
-                                width=req_w
-                            )
-
-                            # 紀錄使用次數
-                            users[st.session_state.user_email]["daily_usage"] = (
-                                users[st.session_state.user_email].get("daily_usage", 0) + 1
-                            )
-                            save_data(USERS_FILE, users)
-
-                            st.success("🎉 圖片生成完畢！")
-                            st.image(
-                                image_result,
-                                caption=f"最終優化提示詞: {full_final_prompt}",
-                                use_container_width=True,
-                            )
-
-                            buf = BytesIO()
-                            image_result.save(buf, format="PNG")
-                            st.download_button(
-                                label="📥 下載高清原圖 (PNG)",
-                                data=buf.getvalue(),
-                                file_name=f"ai_flux_gen_{random.randint(1, 999999)}.png",
-                                mime="image/png",
-                                use_container_width=True,
-                                key="dl_pro_img_btn",
-                            )
-
-                        except Exception as e:
-                            st.error(f"❌ 繪圖失敗，請稍候再試。詳細原因：{e}")
+                except Exception as e:
+                    st.error(f"❌ 無法連線至後端：{e}\n請確認 Colab 頁面是否持續運作中。")
