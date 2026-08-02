@@ -120,80 +120,129 @@ if "user_email" not in st.session_state:
 
 
 # ==============================================================================
-# 3. 會員驗證系統與側邊欄 (穩定登出邏輯)
+# 3. 會員驗證系統（未登入顯示獨立登入頁面，登入後解鎖主功能）
 # ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 情況 A：使用者【未登入】 -> 顯示居中的登入/註冊介面，並用 st.stop() 攔截
+# ------------------------------------------------------------------------------
+if not st.session_state.logged_in:
+    # 隱藏側邊欄，讓登入頁面更乾淨
+    st.markdown(
+        """
+        <style>
+            [data-testid="stSidebar"] {display: none;}
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    # 居中版面卡片
+    _, main_col, _ = st.columns([1, 2, 1])
+
+    with main_col:
+        st.markdown(
+            "<h1 style='text-align: center;'>🔐 多功能數位工作助理</h1>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<p style='text-align: center; color: #666;'>請先登入或註冊帳號以使用完整系統功能</p>",
+            unsafe_allow_html=True,
+        )
+
+        tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 會員註冊"])
+
+        # --- 分頁 1: 帳號登入 ---
+        with tab_login:
+            with st.form("login_form"):
+                email_input = (
+                    st.text_input("電子郵件 (Email)").strip().lower()
+                )
+                password_input = st.text_input("密碼", type="password")
+                submit_login = st.form_submit_button(
+                    "🚀 登入系統", use_container_width=True, type="primary"
+                )
+
+                if submit_login:
+                    if (
+                        email_input in users
+                        and users[email_input]["password"] == password_input
+                    ):
+                        st.session_state.logged_in = True
+                        st.session_state.user_email = email_input
+                        st.success("🎉 登入成功！正在進入系統...")
+                        st.rerun()
+                    else:
+                        st.error("❌ 帳號或密碼輸入錯誤！")
+
+        # --- 分頁 2: 會員註冊 ---
+        with tab_reg:
+            with st.form("register_form"):
+                reg_email = (
+                    st.text_input("電子郵件 (Email)").strip().lower()
+                )
+                reg_name = st.text_input("使用者暱稱").strip()
+                reg_password = st.text_input("設定密碼", type="password")
+                submit_reg = st.form_submit_button(
+                    "✨ 註冊帳號", use_container_width=True
+                )
+
+                if submit_reg:
+                    if not reg_email or not reg_password or not reg_name:
+                        st.error("請完整填寫所有欄位！")
+                    elif reg_email in users:
+                        st.error("此電子郵件已經註冊過了！")
+                    else:
+                        users[reg_email] = {
+                            "name": reg_name,
+                            "password": reg_password,
+                            "role": (
+                                "pro" if reg_email == ADMIN_EMAIL else "free"
+                            ),
+                            "daily_usage": 0,
+                            "last_use_date": str(date.today()),
+                        }
+                        save_data(USERS_FILE, users)
+                        st.success("🎉 註冊成功！請切換至「帳號登入」頁籤進行登入。")
+
+    # 🛑 關鍵：未登入時停止繼續執行下方的主系統頁面（Tabs）
+    st.stop()
+
+
+# ------------------------------------------------------------------------------
+# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與登出按鈕
+# ------------------------------------------------------------------------------
 st.sidebar.title("🔐 會員系統")
 
-if not st.session_state.logged_in:
-    auth_mode = st.sidebar.radio("選擇操作選項", ["帳號登入", "會員註冊"])
-    email_input = st.sidebar.text_input("電子郵件 (Email)").strip().lower()
-    password_input = st.sidebar.text_input("密碼", type="password")
+u_data = users.get(st.session_state.user_email, {})
+current_user_name = u_data.get("name", "會員")
+user_role = u_data.get("role", "free")
 
-    if auth_mode == "會員註冊":
-        name_input = st.sidebar.text_input("使用者暱稱").strip()
-        if st.sidebar.button("註冊帳號", use_container_width=True):
-            if not email_input or not password_input or not name_input:
-                st.sidebar.error("請完整填寫所有欄位！")
-            elif email_input in users:
-                st.sidebar.error("此電子郵件已經註冊過了！")
-            else:
-                users[email_input] = {
-                    "name": name_input,
-                    "password": password_input,
-                    "role": "pro" if email_input == ADMIN_EMAIL else "free",
-                    "daily_usage": 0,
-                    "last_use_date": str(date.today()),
-                }
-                save_data(USERS_FILE, users)
-                st.sidebar.success("🎉 註冊成功！請切換至「帳號登入」。")
+role_badge = (
+    "👑 Admin / Pro"
+    if st.session_state.user_email == ADMIN_EMAIL
+    else ("⭐ Pro 尊榮會員" if user_role == "pro" else "🌱 Free 免費會員")
+)
 
-    elif auth_mode == "帳號登入":
-        if st.sidebar.button("登入系統", use_container_width=True):
-            if (
-                email_input in users
-                and users[email_input]["password"] == password_input
-            ):
-                st.session_state.logged_in = True
-                st.session_state.user_email = email_input
-                st.sidebar.success("登入成功！")
-                st.rerun()
-            else:
-                st.sidebar.error("帳號或密碼輸入錯誤！")
-else:
-    u_data = users.get(st.session_state.user_email, {})
-    current_user_name = u_data.get("name", "會員")
-    user_role = u_data.get("role", "free")
+st.sidebar.success(f"歡迎回來，**{current_user_name}**！")
+st.sidebar.markdown(f"**目前身分**：`{role_badge}`")
 
-    role_badge = (
-        "👑 Admin / Pro"
-        if st.session_state.user_email == ADMIN_EMAIL
-        else ("⭐ Pro 尊榮會員" if user_role == "pro" else "🌱 Free 免費會員")
-    )
+_, _, usage, limit = check_and_update_usage(st.session_state.user_email)
+st.sidebar.progress(
+    min(usage / limit, 1.0),
+    text=f"今日用量：{usage} / {limit} 次",
+)
 
-    st.sidebar.success(f"歡迎，**{current_user_name}**！")
-    st.sidebar.markdown(f"**目前身分**：`{role_badge}`")
-
-    _, _, usage, limit = check_and_update_usage(st.session_state.user_email)
-    st.sidebar.progress(
-        min(usage / limit, 1.0),
-        text=f"今日用量：{usage} / {limit} 次",
-    )
-
-    # 🚪 強制穩定登出按鈕
-    if st.sidebar.button("🚪 安全登出", use_container_width=True):
-        st.session_state.logged_in = False
-        st.session_state.user_email = ""
-        st.rerun()
+# 🚪 安全登出按鈕
+if st.sidebar.button("🚪 安全登出", use_container_width=True):
+    st.session_state.logged_in = False
+    st.session_state.user_email = ""
+    st.rerun()
 
 # 🛡️ 管理員專屬後台
-if (
-    st.session_state.logged_in
-    and st.session_state.user_email == ADMIN_EMAIL
-):
+if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
     st.sidebar.divider()
-    with st.sidebar.expander(
-        "🛡️ 系統後台管理 (Admin Only)", expanded=False
-    ):
+    with st.sidebar.expander("🛡️ 系統後台管理 (Admin Only)", expanded=False):
         st.markdown("**管理員控制台**")
         if users:
             selected_user_email = st.selectbox(
@@ -220,8 +269,6 @@ if (
                     save_data(USERS_FILE, users)
                     st.success("會員權限已成功更新！")
                     st.rerun()
-
-
 # ==============================================================================
 # 4. 主畫面：分頁與模組 (Tabs)
 # ==============================================================================
