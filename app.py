@@ -364,13 +364,56 @@ with tab_ai:
                 st.error(f"❌ 發生錯誤：{e}")
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 自訂 HTML 精美月曆卡片 (完美卡片外觀 + 點擊對話框)
+# TAB 1: 📅 穩定版視覺月曆卡片（100% 觸發彈窗 + 完美卡片外觀）
 # ------------------------------------------------------------------------------
 with tab_cal:
+    # 💥 CSS 魔法：把 st.button 變身成漂亮的月曆卡片外觀
+    st.markdown(
+        """
+        <style>
+        /* 1. 強制 7 欄橫向平均排列 */
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: nowrap !important;
+            gap: 6px !important;
+        }
+        [data-testid="column"] {
+            min-width: 0px !important;
+            flex: 1 1 0px !important;
+        }
+        
+        /* 2. 改造日曆按鈕樣式 */
+        div[data-testid="column"] button {
+            height: 90px !important;
+            border-radius: 12px !important;
+            border: 1px solid #e0e0e0 !important;
+            background-color: #ffffff !important;
+            padding: 6px !important;
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+            transition: all 0.2s ease !important;
+        }
+        div[data-testid="column"] button:hover {
+            border-color: #4285f4 !important;
+            box-shadow: 0 4px 12px rgba(66,133,244,0.18) !important;
+            transform: translateY(-2px) !important;
+        }
+        div[data-testid="column"] button p {
+            width: 100% !important;
+            text-align: left !important;
+            line-height: 1.3 !important;
+        }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
     st.header("📅 視覺化月曆與行程表")
 
     if not st.session_state.logged_in:
-        st.warning("⚠️ 目前為訪客預覽模式。登入帳號後即可完整編輯、新增與刪除日程。")
+        st.warning(
+            "⚠️ 目前為訪客預覽模式。登入帳號後即可完整編輯、新增與刪除日程。"
+        )
         user_email = "guest"
     else:
         user_email = st.session_state.user_email
@@ -379,7 +422,9 @@ with tab_cal:
 
     col_cal_sel, col_cal_mgmt = st.columns([2, 2])
     my_shared_cals = get_user_calendars(user_email)
-    cal_options = ["🔒 個人專屬行事曆"] + [f"👥 {c['name']} (代碼: {c['code']})" for c in my_shared_cals]
+    cal_options = ["🔒 個人專屬行事曆"] + [
+        f"👥 {c['name']} (代碼: {c['code']})" for c in my_shared_cals
+    ]
 
     with col_cal_sel:
         selected_cal_option = st.selectbox("📌 切換行事曆範疇", cal_options)
@@ -388,16 +433,24 @@ with tab_cal:
             current_cal_code = None
         else:
             current_cal_mode = "shared"
-            current_cal_code = selected_cal_option.split("(代碼: ")[1].replace(")", "")
+            current_cal_code = selected_cal_option.split("(代碼: ")[
+                1
+            ].replace(")", "")
 
     with col_cal_mgmt:
         if st.session_state.logged_in:
             with st.popover("➕ 管理 / 加入共享行事曆"):
                 st.markdown("#### 👥 建立新的共享行事曆")
-                new_cal_name = st.text_input("共享行事曆名稱", placeholder="例如：專案組、家庭日曆")
+                new_cal_name = st.text_input(
+                    "共享行事曆名稱", placeholder="例如：專案組、家庭日曆"
+                )
                 if st.button("建立共享行事曆", use_container_width=True):
                     if new_cal_name.strip():
-                        inv_code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                        inv_code = "".join(
+                            random.choices(
+                                string.ascii_uppercase + string.digits, k=6
+                            )
+                        )
                         new_cal = {
                             "name": new_cal_name.strip(),
                             "code": inv_code,
@@ -413,52 +466,85 @@ with tab_cal:
                 st.markdown("#### 🔑 透過邀請碼加入")
                 join_code = st.text_input("輸入 6 位邀請碼").strip().upper()
                 if st.button("加入共享行事曆", use_container_width=True):
-                    target_cal = next((c for c in calendars_data if c.get("code") == join_code), None)
+                    target_cal = next(
+                        (
+                            c
+                            for c in calendars_data
+                            if c.get("code") == join_code
+                        ),
+                        None,
+                    )
                     if target_cal:
-                        if user_email not in target_cal.setdefault("members", []):
+                        if user_email not in target_cal.setdefault(
+                            "members", []
+                        ):
                             target_cal["members"].append(user_email)
                             save_data(CALENDARS_FILE, calendars_data)
                             st.success(f"已成功加入「{target_cal['name']}」！")
                             st.rerun()
 
     if current_cal_mode == "personal":
-        active_events = [e for e in events if e.get("creator") == user_email and not e.get("cal_code")]
+        active_events = [
+            e
+            for e in events
+            if e.get("creator") == user_email and not e.get("cal_code")
+        ]
     else:
-        active_events = [e for e in events if e.get("cal_code") == current_cal_code]
+        active_events = [
+            e for e in events if e.get("cal_code") == current_cal_code
+        ]
 
     c_y, c_m, _ = st.columns([1, 1, 2])
     with c_y:
-        sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
+        sel_year = st.number_input(
+            "選擇年份", min_value=2020, max_value=2030, value=today.year
+        )
     with c_m:
-        sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
+        sel_month = st.number_input(
+            "選擇月份", min_value=1, max_value=12, value=today.month
+        )
 
-    # 🛠️ 彈窗對話框 (st.dialog)
+    # 🛠️ 彈窗對話框
     @st.dialog("📅 行程管理與編輯", width="large")
     def open_day_dialog(selected_date_str):
         st.subheader(f"📌 {selected_date_str} 的行程管理")
-        day_events = [e for e in active_events if e.get("date") == selected_date_str]
+        day_events = [
+            e for e in active_events if e.get("date") == selected_date_str
+        ]
 
         if not day_events:
             st.info("💡 當天目前沒有任何行程安排。")
         else:
             for idx, ev in enumerate(day_events):
-                with st.expander(f"📌 {ev['title']} ({ev.get('category', '一般')})", expanded=True):
+                with st.expander(
+                    f"📌 {ev['title']} ({ev.get('category', '一般')})",
+                    expanded=True,
+                ):
                     can_edit = st.session_state.logged_in and (
-                        user_email == ev.get("creator") or user_email == ADMIN_EMAIL
+                        user_email == ev.get("creator")
+                        or user_email == ADMIN_EMAIL
                     )
                     if can_edit:
                         with st.form(f"dlg_edit_form_{selected_date_str}_{idx}"):
-                            edit_title = st.text_input("行程名稱", value=ev.get("title", ""))
+                            edit_title = st.text_input(
+                                "行程名稱", value=ev.get("title", "")
+                            )
                             edit_cate = st.selectbox(
                                 "分類",
                                 ["工作", "個人", "重要提醒", "休閒"],
-                                index=["工作", "個人", "重要提醒", "休閒"].index(ev.get("category", "工作")),
+                                index=["工作", "個人", "重要提醒", "休閒"].index(
+                                    ev.get("category", "工作")
+                                ),
                             )
-                            edit_desc = st.text_area("詳細備註", value=ev.get("description", ""))
+                            edit_desc = st.text_area(
+                                "詳細備註", value=ev.get("description", "")
+                            )
 
                             col_b1, col_b2 = st.columns(2)
                             with col_b1:
-                                if st.form_submit_button("💾 儲存修改", use_container_width=True):
+                                if st.form_submit_button(
+                                    "💾 儲存修改", use_container_width=True
+                                ):
                                     ev["title"] = edit_title.strip()
                                     ev["category"] = edit_cate
                                     ev["description"] = edit_desc.strip()
@@ -466,7 +552,9 @@ with tab_cal:
                                     st.success("行程已更新！")
                                     st.rerun()
                             with col_b2:
-                                if st.form_submit_button("🗑️ 刪除此行程", use_container_width=True):
+                                if st.form_submit_button(
+                                    "🗑️ 刪除此行程", use_container_width=True
+                                ):
                                     events.remove(ev)
                                     save_data(EVENTS_FILE, events)
                                     st.success("行程已刪除！")
@@ -480,9 +568,13 @@ with tab_cal:
         if st.session_state.logged_in:
             with st.form(f"dlg_add_form_{selected_date_str}"):
                 new_title = st.text_input("行程名稱（必填）")
-                new_cate = st.selectbox("分類", ["工作", "個人", "重要提醒", "休閒"])
+                new_cate = st.selectbox(
+                    "分類", ["工作", "個人", "重要提醒", "休閒"]
+                )
                 new_desc = st.text_area("詳細備註")
-                if st.form_submit_button("💾 儲存並新增", use_container_width=True):
+                if st.form_submit_button(
+                    "💾 儲存並新增", use_container_width=True
+                ):
                     if not new_title.strip():
                         st.error("請填寫行程名稱！")
                     else:
@@ -492,128 +584,55 @@ with tab_cal:
                             "category": new_cate,
                             "description": new_desc.strip(),
                             "creator": user_email,
-                            "cal_code": current_cal_code if current_cal_mode == "shared" else None,
+                            "cal_code": current_cal_code
+                            if current_cal_mode == "shared"
+                            else None,
                         })
                         save_data(EVENTS_FILE, events)
                         st.success("行程新增成功！")
                         st.rerun()
         else:
-            st.info("🔒 請於側邊欄登入帳號後進行行程新增。")
+            st.info("🔒 請先登入帳號後新增行程。")
 
-    # 檢查網址參數是否有點擊觸發
-    query_params = st.query_params
-    if "clicked_date" in query_params:
-        clicked_date = query_params["clicked_date"]
-        del st.query_params["clicked_date"]
-        open_day_dialog(clicked_date)
-
-    # 🗓️ 繪製 HTML 自訂日曆卡片
+    # 🗓️ 日曆渲染 (使用 Streamlit 原生 button 搭配 HTML 格式化)
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
 
-    # 組合完整 HTML/CSS 畫面
-    html_content = """
-    <style>
-    .cal-grid {
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 8px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    .cal-header {
-        text-align: center;
-        font-weight: bold;
-        color: #5f6368;
-        padding: 4px 0;
-        font-size: 14px;
-    }
-    .cal-card-empty {
-        background: transparent;
-        min-height: 80px;
-    }
-    .cal-card {
-        background: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 8px;
-        min-height: 80px;
-        cursor: pointer;
-        transition: all 0.2s ease-in-out;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-start;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-        text-decoration: none !important;
-        color: inherit;
-    }
-    .cal-card:hover {
-        border-color: #4285f4;
-        box-shadow: 0 4px 12px rgba(66,133,244,0.18);
-        transform: translateY(-2px);
-    }
-    .cal-day-num {
-        font-size: 16px;
-        font-weight: bold;
-        color: #202124;
-        margin-bottom: 6px;
-    }
-    .cal-event-tag {
-        background-color: #fce8e6;
-        color: #d93025;
-        font-size: 12px;
-        font-weight: 600;
-        padding: 3px 6px;
-        border-radius: 6px;
-        margin-top: 2px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100%;
-        box-sizing: border-box;
-    }
-    .cal-event-more {
-        color: #70757a;
-        font-size: 11px;
-        margin-top: 3px;
-    }
-    </style>
-    <div class="cal-grid">
-    """
+    # 1. 星期標籤
+    w_cols = st.columns(7)
+    for idx, w in enumerate(weekdays):
+        w_cols[idx].markdown(
+            f"<div style='text-align:center; font-weight:bold; color:#718096; margin-bottom:6px;'>週{w}</div>",
+            unsafe_allow_html=True,
+        )
 
-    # 1. 星期標頭
-    for w in weekdays:
-        html_content += f'<div class="cal-header">週{w}</div>'
-
-    # 2. 日期格子
+    # 2. 渲染日曆網格
     for week in cal:
-        for day in week:
+        cols = st.columns(7)
+        for idx, day in enumerate(week):
             if day == 0:
-                html_content += '<div class="cal-card-empty"></div>'
+                cols[idx].write("")
             else:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
                 day_evs = [e for e in active_events if e.get("date") == day_str]
 
-                tags_html = ""
+                # 排版組合：大數字日期 + 淡紅色行程標籤
+                button_label = f"**:blue[{day}]**\n\n"
                 if day_evs:
                     first_title = day_evs[0]["title"]
-                    tags_html += f'<div class="cal-event-tag">{first_title}</div>'
+                    if len(first_title) > 5:
+                        first_title = first_title[:5] + "..."
+                    button_label += f"📌 :{first_title}:"
                     if len(day_evs) > 1:
-                        tags_html += f'<div class="cal-event-more">+{len(day_evs)-1} 更多</div>'
+                        button_label += f" *(+{len(day_evs)-1})*"
 
-                # 使用 top.location 跳轉觸發 Streamlit query_params
-                html_content += f"""
-                <a class="cal-card" href="javascript:void(0)" onclick="window.top.location.href=window.top.location.pathname + '?clicked_date={day_str}';">
-                    <div class="cal-day-num">{day}</div>
-                    {tags_html}
-                </a>
-                """
-
-    html_content += "</div>"
-
-    # 算高度並渲染 HTML
-    grid_rows = len(cal) + 1
-    calc_height = grid_rows * 95 + 20
-    components.html(html_content, height=calc_height, scrolling=False)
+                # 點擊按鈕 100% 秒發觸發對話框
+                if cols[idx].button(
+                    button_label,
+                    key=f"btn_day_{day_str}",
+                    use_container_width=True,
+                ):
+                    open_day_dialog(day_str)
 # ------------------------------------------------------------------------------
 # TAB 2~5 保持工具完整
 # ------------------------------------------------------------------------------
