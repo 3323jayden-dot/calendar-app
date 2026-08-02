@@ -1215,7 +1215,7 @@ with tab_img:
         if not prompt.strip():
             st.warning("⚠️ 請先輸入圖像提示詞！")
         else:
-            # 檢查/更新用量
+            # 檢查用量
             allowed, msg, usage, limit = check_and_update_usage(
                 st.session_state.user_email
             )
@@ -1223,114 +1223,81 @@ with tab_img:
             if not allowed:
                 st.error(msg)
             else:
-                with st.spinner("🎨 AI 正在使用 FLUX 高品質模型繪製中..."):
+                with st.spinner("🎨 AI 正在精心繪製圖片中，請稍候..."):
                     import random
+                    import time
                     import urllib.parse
                     from io import BytesIO
                     import requests
                     from PIL import Image
 
-                    try:
-                        seed = random.randint(1, 999999)
-                        encoded_prompt = urllib.parse.quote(prompt.strip())
+                    seed = random.randint(1, 999999)
+                    encoded_prompt = urllib.parse.quote(prompt.strip())
 
-                        # 模擬完整瀏覽器標頭，確保主要路線不會被攔截
-                        headers = {
-                            "User-Agent": (
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                                " AppleWebKit/537.36 (KHTML, like Gecko)"
-                                " Chrome/122.0.0.0 Safari/537.36"
-                            ),
-                            "Accept": (
-                                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
-                            ),
-                        }
+                    # 擬真 Header 避免被認定為爬蟲
+                    headers = {
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+                            " AppleWebKit/537.36 (KHTML, like Gecko)"
+                            " Chrome/122.0.0.0 Safari/537.36"
+                        )
+                    }
 
-                        # 🎯 主要路線：直接指定 FLUX 頂級模型
-                        primary_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&model={model_type}&nologo=true&enhance=true"
+                    # 嘗試生成 (最多自動重試 3 次)
+                    image_result = None
+                    urls_to_try = [
+                        # 主要 FLUX 路線
+                        f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&model={model_type}&nologo=true&enhance=true",
+                        # 備用路線 1
+                        f"https://pollinations.ai/p/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&nologo=true",
+                        # 備用路線 2 (基礎快取)
+                        f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}",
+                    ]
 
-                        res = requests.get(
-                            primary_url, headers=headers, timeout=60
+                    for url in urls_to_try:
+                        try:
+                            res = requests.get(url, headers=headers, timeout=25)
+                            # 檢查回傳標頭是否為圖片
+                            if (
+                                res.status_code == 200
+                                and "image"
+                                in res.headers.get("Content-Type", "").lower()
+                            ):
+                                image_result = Image.open(BytesIO(res.content))
+                                break  # 成功取得圖片，跳出迴圈
+                        except Exception:
+                            continue  # 失敗則嘗試下一個 URL
+
+                    # 判斷最終結果
+                    if image_result:
+                        # 紀錄用量
+                        users[st.session_state.user_email]["daily_usage"] = (
+                            users[st.session_state.user_email].get(
+                                "daily_usage", 0
+                            )
+                            + 1
+                        )
+                        save_data(USERS_FILE, users)
+
+                        st.success("✨ 圖片生成成功！")
+                        st.image(
+                            image_result,
+                            caption=f"提示詞: {prompt}",
+                            use_container_width=True,
                         )
 
-                        # 驗證是否成功取得圖片
-                        if (
-                            res.status_code == 200
-                            and "image" in res.headers.get("Content-Type", "")
-                        ):
-                            image = Image.open(BytesIO(res.content))
-
-                            # 紀錄用量
-                            users[st.session_state.user_email][
-                                "daily_usage"
-                            ] = (
-                                users[st.session_state.user_email].get(
-                                    "daily_usage", 0
-                                )
-                                + 1
-                            )
-                            save_data(USERS_FILE, users)
-
-                            st.success("✨ 高品質圖片生成成功 (FLUX 主要路線)！")
-                            st.image(
-                                image,
-                                caption=f"提示詞: {prompt}",
-                                use_container_width=True,
-                            )
-
-                            buf = BytesIO()
-                            image.save(buf, format="PNG")
-                            byte_im = buf.getvalue()
-
-                            st.download_button(
-                                label="📥 下載高清原圖 (PNG)",
-                                data=byte_im,
-                                file_name=f"ai_flux_{seed}.png",
-                                mime="image/png",
-                                use_container_width=True,
-                                key="dl_img_btn",
-                            )
-                        else:
-                            # 備用路線 (當 FLUX 主要伺服器滿載時的保險)
-                            backup_url = f"https://pollinations.ai/p/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&nologo=true"
-                            res_backup = requests.get(
-                                backup_url, headers=headers, timeout=45
-                            )
-
-                            if res_backup.status_code == 200:
-                                image = Image.open(BytesIO(res_backup.content))
-
-                                users[st.session_state.user_email][
-                                    "daily_usage"
-                                ] = (
-                                    users[st.session_state.user_email].get(
-                                        "daily_usage", 0
-                                    )
-                                    + 1
-                                )
-                                save_data(USERS_FILE, users)
-
-                                st.success("✨ 圖片生成成功！")
-                                st.image(
-                                    image,
-                                    caption=f"提示詞: {prompt}",
-                                    use_container_width=True,
-                                )
-
-                                buf = BytesIO()
-                                image.save(buf, format="PNG")
-                                st.download_button(
-                                    label="📥 下載高清原圖 (PNG)",
-                                    data=buf.getvalue(),
-                                    file_name=f"ai_image_{seed}.png",
-                                    mime="image/png",
-                                    use_container_width=True,
-                                    key="dl_img_btn_backup",
-                                )
-                            else:
-                                st.error(
-                                    "❌ 伺服器目前較忙碌，請稍等幾秒後再試一次！"
-                                )
-
-                    except Exception as e:
-                        st.error(f"❌ 生成失敗：{e}")
+                        buf = BytesIO()
+                        image_result.save(buf, format="PNG")
+                        st.download_button(
+                            label="📥 下載高清原圖 (PNG)",
+                            data=buf.getvalue(),
+                            file_name=f"ai_image_{seed}.png",
+                            mime="image/png",
+                            use_container_width=True,
+                            key="dl_img_btn",
+                        )
+                    else:
+                        st.error(
+                            "❌ 繪圖伺服器目前流量較大無回應，請稍微修改提示詞或點擊「🚀"
+                            " 開始生成圖片」再試一次！"
+                        )
