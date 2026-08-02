@@ -29,7 +29,7 @@ USERS_FILE = "users.json"
 EVENTS_FILE = "events.json"
 CALENDARS_FILE = "calendars.json"
 
-ADMIN_EMAIL = "3323jayden@gmail.com"  # 確保管理員 Email 設定正確
+ADMIN_EMAIL = "3323jayden@gmail.com"  # 系統管理者帳號
 ICON_URL = "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg"
 
 PLAN_LIMITS = {
@@ -111,61 +111,16 @@ def check_and_update_usage(user_email):
 
 
 # ==============================================================================
-# 2. 自動登入邏輯（修復 URL 綁定）
+# 2. Session State 初始化
 # ==============================================================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
 
-# 若 Session 未登入但 URL 帶有 user 參數時自動恢復登入
-if not st.session_state.logged_in and "user" in st.query_params:
-    saved_user = st.query_params["user"]
-    if saved_user and saved_user in users:
-        st.session_state.logged_in = True
-        st.session_state.user_email = saved_user
 
 # ==============================================================================
-# 3. PWA 安裝腳本
-# ==============================================================================
-pwa_html = f"""
-<script>
-(function() {{
-    const currentSearch = window.parent.location.search || window.location.search;
-    const startUrl = '/' + currentSearch;
-
-    const manifest = {{
-      "name": "多功能雲端助理",
-      "short_name": "雲端助理",
-      "start_url": startUrl,
-      "display": "standalone",
-      "background_color": "#ffffff",
-      "theme_color": "#007aff",
-      "icons": [
-        {{ "src": "{ICON_URL}", "sizes": "192x192", "type": "image/jpeg", "purpose": "any maskable" }},
-        {{ "src": "{ICON_URL}", "sizes": "512x512", "type": "image/jpeg", "purpose": "any maskable" }}
-      ]
-    }};
-
-    const stringManifest = JSON.stringify(manifest);
-    const blob = new Blob([stringManifest], {{type: 'application/json'}});
-    const manifestURL = URL.createObjectURL(blob);
-    
-    const oldLink = document.head.querySelector('link[rel="manifest"]');
-    if (oldLink) oldLink.remove();
-
-    let linkTag = document.createElement('link');
-    linkTag.rel = 'manifest';
-    linkTag.href = manifestURL;
-    document.head.appendChild(linkTag);
-}})();
-</script>
-"""
-components.html(pwa_html, height=0)
-
-
-# ==============================================================================
-# 4. 會員驗證系統與側邊欄 (徹底登出機制修復)
+# 3. 會員驗證系統與側邊欄 (穩定登出邏輯)
 # ==============================================================================
 st.sidebar.title("🔐 會員系統")
 
@@ -185,9 +140,7 @@ if not st.session_state.logged_in:
                 users[email_input] = {
                     "name": name_input,
                     "password": password_input,
-                    "role": (
-                        "pro" if email_input == ADMIN_EMAIL else "free"
-                    ),  # Admin 預設給 Pro
+                    "role": "pro" if email_input == ADMIN_EMAIL else "free",
                     "daily_usage": 0,
                     "last_use_date": str(date.today()),
                 }
@@ -202,7 +155,6 @@ if not st.session_state.logged_in:
             ):
                 st.session_state.logged_in = True
                 st.session_state.user_email = email_input
-                st.query_params["user"] = email_input  # 記住登入狀態
                 st.sidebar.success("登入成功！")
                 st.rerun()
             else:
@@ -227,14 +179,13 @@ else:
         text=f"今日用量：{usage} / {limit} 次",
     )
 
-    # 🛠️ 徹底登出邏輯：清空 Session + 清空 URL Query Params
+    # 🚪 強制穩定登出按鈕
     if st.sidebar.button("🚪 安全登出", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.user_email = ""
-        st.query_params.clear()  # 強制清除網址上的 ?user= 參數
         st.rerun()
 
-# 🛡️ 管理員後台
+# 🛡️ 管理員專屬後台
 if (
     st.session_state.logged_in
     and st.session_state.user_email == ADMIN_EMAIL
@@ -272,7 +223,7 @@ if (
 
 
 # ==============================================================================
-# 5. 主畫面：分頁與模組 (Tabs)
+# 4. 主畫面：分頁與模組 (Tabs)
 # ==============================================================================
 st.title("⚡ 多功能數位工作助理與行事曆")
 
@@ -413,14 +364,14 @@ with tab_ai:
                 st.error(f"❌ 發生錯誤：{e}")
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆與行程 (修復 Admin 編輯權限)
+# TAB 1: 📅 原生按鈕穩定版日曆（點擊 100% 觸發彈窗與完整編輯/刪除）
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
 
     if not st.session_state.logged_in:
         st.warning(
-            "⚠️ 目前為訪客預覽模式。登入後可切換個人/共享行事曆並編輯/新增行程。"
+            "⚠️ 目前為訪客預覽模式。登入帳號後即可完整編輯、新增與刪除日程。"
         )
         user_email = "guest"
     else:
@@ -506,10 +457,10 @@ with tab_cal:
             "選擇月份", min_value=1, max_value=12, value=today.month
         )
 
-    # 🛠️ 對話框修復：賦予 Admin 最高權限編輯/刪除
-    @st.dialog("📅 行程安排與管理", width="large")
-    def show_event_dialog(selected_date_str):
-        st.subheader(f"📌 {selected_date_str} 的行程 ({selected_cal_option})")
+    # 🛠️ 使用原生 Streamlit 對話彈窗 (st.dialog) 處理點擊
+    @st.dialog("📅 行程管理與編輯", width="large")
+    def open_day_dialog(selected_date_str):
+        st.subheader(f"📌 {selected_date_str} 的行程管理")
         day_events = [
             e for e in active_events if e.get("date") == selected_date_str
         ]
@@ -522,20 +473,18 @@ with tab_cal:
                     f"📌 {ev['title']} ({ev.get('category', '一般')})",
                     expanded=True,
                 ):
-                    # 判斷權限：建立者 OR 系統 Admin
+                    # 權限判斷：建立者 OR 管理員 (3323jayden@gmail.com)
                     can_edit = st.session_state.logged_in and (
                         user_email == ev.get("creator")
                         or user_email == ADMIN_EMAIL
                     )
 
                     if can_edit:
-                        # 可編輯表單
                         with st.form(
-                            f"edit_form_{selected_date_str}_{idx}",
-                            clear_on_submit=False,
+                            f"dlg_edit_form_{selected_date_str}_{idx}"
                         ):
                             edit_title = st.text_input(
-                                "行程標題", value=ev.get("title", "")
+                                "行程名稱", value=ev.get("title", "")
                             )
                             edit_cate = st.selectbox(
                                 "分類",
@@ -551,8 +500,8 @@ with tab_cal:
                                 "詳細備註", value=ev.get("description", "")
                             )
 
-                            col_e1, col_e2 = st.columns(2)
-                            with col_e1:
+                            col_b1, col_b2 = st.columns(2)
+                            with col_b1:
                                 if st.form_submit_button(
                                     "💾 儲存修改", use_container_width=True
                                 ):
@@ -560,46 +509,44 @@ with tab_cal:
                                     ev["category"] = edit_cate
                                     ev["description"] = edit_desc.strip()
                                     save_data(EVENTS_FILE, events)
-                                    st.success("行程更新成功！")
+                                    st.success("行程已更新！")
                                     st.rerun()
-                            with col_e2:
+                            with col_b2:
                                 if st.form_submit_button(
                                     "🗑️ 刪除此行程",
                                     use_container_width=True,
                                 ):
                                     events.remove(ev)
                                     save_data(EVENTS_FILE, events)
-                                    st.success("行程已成功刪除！")
+                                    st.success("行程已刪除！")
                                     st.rerun()
                     else:
                         st.write(
                             f"**詳細備註**：{ev.get('description') if ev.get('description') else '無'}"
                         )
                         st.caption(f"建立者：{ev.get('creator', '未知')}")
-                        st.caption("🔒 僅有行程建立者與 Admin 可以編輯/刪除此行程")
+                        st.caption("🔒 僅建立者或 Admin 擁有編輯與刪除權限")
 
         st.divider()
-        st.markdown(f"### ➕ 新增至【{selected_cal_option}】")
+        st.markdown(f"### ➕ 新增行程至 {selected_date_str}")
         if st.session_state.logged_in:
-            with st.form(
-                f"dialog_add_form_{selected_date_str}", clear_on_submit=True
-            ):
-                e_title = st.text_input("行程名稱（必填）")
-                e_cate = st.selectbox(
-                    "行程分類", ["工作", "個人", "重要提醒", "休閒"]
+            with st.form(f"dlg_add_form_{selected_date_str}"):
+                new_title = st.text_input("行程名稱（必填）")
+                new_cate = st.selectbox(
+                    "分類", ["工作", "個人", "重要提醒", "休閒"]
                 )
-                e_desc = st.text_area("行程詳細備註")
+                new_desc = st.text_area("詳細備註")
                 if st.form_submit_button(
-                    "💾 儲存並新增行程", use_container_width=True
+                    "💾 儲存並新增", use_container_width=True
                 ):
-                    if not e_title.strip():
+                    if not new_title.strip():
                         st.error("請填寫行程名稱！")
                     else:
                         new_ev = {
-                            "title": e_title.strip(),
+                            "title": new_title.strip(),
                             "date": selected_date_str,
-                            "category": e_cate,
-                            "description": e_desc.strip(),
+                            "category": new_cate,
+                            "description": new_desc.strip(),
                             "creator": user_email,
                             "cal_code": (
                                 current_cal_code
@@ -614,63 +561,43 @@ with tab_cal:
         else:
             st.info("🔒 請於側邊欄登入帳號後進行行程新增。")
 
+    # 🗓️ 原生網格繪製：每一個日期都是一個原生可點擊的 Streamlit 按鈕！
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
 
-    query_p = st.query_params
-    if "click_date" in query_p:
-        clicked_date_str = query_p["click_date"]
-        del st.query_params["click_date"]
-        show_event_dialog(clicked_date_str)
+    # 星期標頭
+    w_cols = st.columns(7)
+    for idx, w in enumerate(weekdays):
+        w_cols[idx].markdown(
+            f"<div style='text-align:center; font-weight:bold; color:#718096;'>週{w}</div>",
+            unsafe_allow_html=True,
+        )
 
-    html_code = """
-    <style>
-        .cal-wrapper { width: 100%; overflow-x: auto; }
-        .cal-grid { display: grid !important; grid-template-columns: repeat(7, minmax(40px, 1fr)) !important; gap: 6px; width: 100%; min-width: 320px; }
-        .cal-header { text-align: center; font-weight: bold; color: #718096; font-size: 13px; padding: 4px 0; }
-        .cal-card { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; height: 65px; padding: 4px; box-sizing: border-box; cursor: pointer; transition: all 0.15s ease-in-out; display: flex; flex-direction: column; justify-content: flex-start; }
-        .cal-card:hover { border-color: #cbd5e0; background-color: #f7fafc; transform: translateY(-1px); }
-        .cal-empty { height: 65px; }
-        .day-num { font-size: 14px; font-weight: bold; color: #2d3748; }
-        .tag-pink { background-color: #ffebee; color: #e53935; font-size: 10px; font-weight: 600; padding: 2px 4px; border-radius: 6px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    </style>
-    <div class="cal-wrapper"><div class="cal-grid">
-    """
-
-    for w in weekdays:
-        html_code += f'<div class="cal-header">週{w}</div>'
-
+    # 日期網格按鈕渲染
     for week in cal:
-        for day in week:
+        cols = st.columns(7)
+        for idx, day in enumerate(week):
             if day == 0:
-                html_code += '<div class="cal-empty"></div>'
+                cols[idx].write("")
             else:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
-                day_events = [
+                day_evs = [
                     e for e in active_events if e.get("date") == day_str
                 ]
 
-                tag_html = ""
-                if day_events:
-                    title = day_events[0]["title"]
-                    short_title = (
-                        title[:4] + ".." if len(title) > 4 else title
-                    )
-                    tag_html = f'<div class="tag-pink">📌{short_title}</div>'
+                # 按鈕顯示文字
+                btn_label = f"{day}日"
+                if day_evs:
+                    btn_label += f" 📌({len(day_evs)})"
 
-                click_js = f"window.parent.location.href = window.parent.location.pathname + '?click_date={day_str}';"
-                html_code += f"""
-                <div class="cal-card" onclick="{click_js}">
-                    <div class="day-num">{day}</div>
-                    {tag_html}
-                </div>
-                """
-
-    html_code += "</div></div>"
-    components.html(html_code, height=480, scrolling=False)
+                # 點擊按鈕直接 100% 彈出對話視窗
+                if cols[idx].button(
+                    btn_label, key=f"btn_day_{day_str}", use_container_width=True
+                ):
+                    open_day_dialog(day_str)
 
 # ------------------------------------------------------------------------------
-# TAB 2~5 保持功能完整
+# TAB 2~5 保持工具完整
 # ------------------------------------------------------------------------------
 with tab_pdf:
     st.header("📄 PDF 救星工具箱")
