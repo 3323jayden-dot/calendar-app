@@ -240,98 +240,83 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 
 import streamlit.components.v1 as components
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 智囊團（Gemini 風格主頁與對話）
+# TAB 0: 🤖 Groq AI 智囊團（固定輸入框 + 自動滑動聊天視窗）
 # ------------------------------------------------------------------------------
 with tab_ai:
     # 1. 初始化聊天紀錄
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 注入 CSS 讓頁面與輸入框更像現代 AI 介面
-    st.markdown("""
-        <style>
-        .ai-welcome-container {
-            text-align: center;
-            padding: 60px 20px 20px 20px;
-        }
-        .ai-welcome-title {
-            font-size: 36px !important;
-            font-weight: 700;
-            background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 10px;
-        }
-        .ai-welcome-sub {
-            color: #5f6368;
-            font-size: 18px;
-            margin-bottom: 30px;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # 頂部控制區（如果已有對話，顯示重置按鈕）
-    if st.session_state.messages:
-        c_space, c_reset = st.columns([5, 1])
-        with c_reset:
+    # 頂部抬頭與重置按鈕
+    c_title, c_reset = st.columns([5, 1])
+    with c_title:
+        st.markdown("### 🤖 Groq 極速 AI 助手")
+    with c_reset:
+        if st.session_state.messages:
             if st.button("➕ 新對話", use_container_width=True):
                 st.session_state.messages = []
                 st.rerun()
 
-    # 2. 判斷狀態：尚未有對話時顯示「Gemini 風格歡迎頁」
-    if not st.session_state.messages:
-        st.markdown("""
-            <div class="ai-welcome-container">
-                <div class="ai-welcome-title">Jayden，儘管發問吧！</div>
-                <div class="ai-welcome-sub">我可以幫你規劃行程、撰寫文案或解答各種問題</div>
-            </div>
-        """, unsafe_allow_html=True)
+    # 2. 建立固定高度的聊天內容容器 (定高 500px，內容過長自動出現滑桿並滑到底部)
+    chat_container = st.container(height=500, border=True)
 
-    # 3. 如果已有對話，渲染聊天紀錄
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    with chat_container:
+        # 尚未有對話時，在區域中央顯示 Gemini 風格歡迎詞
+        if not st.session_state.messages:
+            st.markdown("""
+                <div style="text-align: center; padding-top: 150px;">
+                    <h1 style="background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 32px; font-weight: bold;">
+                        Jayden，儘管發問吧！
+                    </h1>
+                    <p style="color: #718096; font-size: 16px;">我可以幫你規劃行程、撰寫文案或解答各種問題</p>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            # 渲染歷史對話紀錄
+            for msg in st.session_state.messages:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
 
-    # 4. 底部聊天輸入框
-    placeholder_text = "問問 AI 助手..." if st.session_state.messages else "在此輸入您的問題..."
-    if prompt := st.chat_input(placeholder_text):
-        
-        # 檢查 API Key
+    # 3. 底部固定輸入框
+    if prompt := st.chat_input("問問 AI 助手..."):
         if "GROQ_API_KEY" not in st.secrets or not st.secrets["GROQ_API_KEY"]:
             st.error("⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`，請先至後台設定。")
         else:
             # 存入使用者訊息
             st.session_state.messages.append({"role": "user", "content": prompt})
-            st.rerun()  # 立即重整理讓畫面轉入對話模式
+            st.rerun()
 
-    # 如果最後一筆是使用者的訊息，觸發 AI 回覆
+    # 4. 處理 AI 回覆 (渲染在容器內部)
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-        with st.chat_message("assistant"):
-            with st.spinner("AI 思考中..."):
-                try:
-                    from groq import Groq
-                    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+        with chat_container:
+            with st.chat_message("assistant"):
+                with st.spinner("AI 思考中..."):
+                    try:
+                        from groq import Groq
+                        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-                    api_messages = [
-                        {"role": "system", "content": "你是一個親切且專業的繁體中文 AI 助手。"}
-                    ] + [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.messages
-                    ]
+                        api_messages = [
+                            {"role": "system", "content": "你是一個親切且專業的繁體中文 AI 助手。"}
+                        ] + [
+                            {"role": m["role"], "content": m["content"]}
+                            for m in st.session_state.messages
+                        ]
 
-                    response = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=api_messages,
-                        temperature=0.7,
-                    )
+                        response = client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=api_messages,
+                            temperature=0.7,
+                        )
 
-                    ai_reply = response.choices[0].message.content
-                    st.markdown(ai_reply)
-                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                    st.rerun()
+                        ai_reply = response.choices[0].message.content
+                        st.markdown(ai_reply)
+                        
+                        # 存入歷史並重整刷新視窗位置
+                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                        st.rerun()
 
-                except Exception as e:
-                    st.error(f"❌ 發生錯誤：{e}")
+                    except Exception as e:
+                        st.error(f"❌ 發生錯誤：{e}")
 # ------------------------------------------------------------------------------
 # TAB 1: 📅 視覺化日曆網格（7 欄完美不跑版 + 支援直接點擊日期彈窗）
 # ------------------------------------------------------------------------------
