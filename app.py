@@ -1175,8 +1175,8 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6.ai圖片生成
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖與靈感工房 (SDXL 穩定版)")
-    st.caption("支援中文描述！呼叫原生 SDXL 繪圖引擎，生成 8K 大師質感圖像。")
+    st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1 / SDXL 精確版)")
+    st.caption("支援中文描述！精準繪製高品質寫實圖像，告別莫名其妙的水墨畫。")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
@@ -1211,16 +1211,15 @@ with tab_img:
             key="img_style_select",
         )
 
-        # 3. 畫面比例選擇
-        aspect_ratio = st.selectbox(
-            "📐 圖片比例",
+        # 3. 模型選擇 (解決跑圖偏差)
+        model_choice = st.selectbox(
+            "🤖 選擇繪圖引擎",
             [
-                "1:1 (正方形 - 社群貼文/大頭貼)",
-                "16:9 (橫向 - 桌布/YouTube 縮圖)",
-                "9:16 (縱向 - 手機桌布/Reels/Threads)",
+                "FLUX.1 Schnell (極速寫實/推薦)",
+                "SDXL Lightning (4-Step 高清超快)",
             ],
             index=0,
-            key="img_ratio_select",
+            key="img_model_select",
         )
 
     style_prompts = {
@@ -1275,7 +1274,7 @@ with tab_img:
                                 magic_sys = (
                                     "You are an expert AI Image Prompt Engineer."
                                     " Convert the user's input into a highly detailed, vivid English text prompt"
-                                    " optimized for Stable Diffusion XL image generation. Output ONLY the refined English prompt, nothing else."
+                                    " optimized for modern AI image generation. Output ONLY the refined English prompt, nothing else."
                                 )
                                 response = groq_client.chat.completions.create(
                                     model="llama-3.3-70b-versatile",
@@ -1293,16 +1292,20 @@ with tab_img:
 
                     final_prompt += style_prompts[style_option]
 
-                    with st.spinner("🚀 SDXL 繪畫中 (需時約 10-20 秒)..."):
+                    # 根據選擇切換精準模型
+                    target_model = "black-forest-labs/FLUX.1-schnell" if "FLUX" in model_choice else "ByteDance/SDXL-Lightning"
+
+                    with st.spinner(f"🚀 AI 正在使用 {model_choice} 繪畫中..."):
                         try:
-                            # 💡 使用官方 SDK 的 InferenceClient，自動繞過網路連接阻擋與通道問題
                             client = InferenceClient(
-                                model="stabilityai/stable-diffusion-xl-base-1.0",
                                 token=hf_token.strip(),
                             )
 
-                            # 直接呼叫 text_to_image API，會自動回傳 PIL Image 物件
-                            image_result = client.text_to_image(final_prompt)
+                            # 使用指定模型的 text_to_image
+                            image_result = client.text_to_image(
+                                prompt=final_prompt,
+                                model=target_model
+                            )
 
                             # 紀錄使用次數
                             users[st.session_state.user_email]["daily_usage"] = (
@@ -1310,7 +1313,7 @@ with tab_img:
                             )
                             save_data(USERS_FILE, users)
 
-                            st.success("🎉 SDXL 圖片生成完畢！")
+                            st.success("🎉 圖片生成完畢！")
                             st.image(
                                 image_result,
                                 caption=f"最終優化提示詞: {final_prompt}",
@@ -1322,7 +1325,7 @@ with tab_img:
                             st.download_button(
                                 label="📥 下載高清原圖 (PNG)",
                                 data=buf.getvalue(),
-                                file_name=f"ai_sdxl_{random.randint(1, 999999)}.png",
+                                file_name=f"ai_gen_{random.randint(1, 999999)}.png",
                                 mime="image/png",
                                 use_container_width=True,
                                 key="dl_pro_img_btn",
