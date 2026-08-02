@@ -1176,7 +1176,7 @@ footer_html = """
 """
 st.markdown(footer_html, unsafe_allow_html=True)
 # ==============================================================================
-# 6.ai圖片生成
+# 6. AI 圖片生成 (FLUX.1 極速穩定版)
 # ==============================================================================
 with tab_img:
     st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1 極速版)")
@@ -1297,15 +1297,14 @@ with tab_img:
 
                     final_prompt += style_prompts[style_option]
 
-                    with st.spinner("🚀 FLUX.1 繪畫中 (需時約 5-10 秒)..."):
+                    with st.spinner("🚀 FLUX.1 繪畫中 (需時約 3-8 秒)..."):
                         try:
-                            # 💡 升級為 black-forest-labs/FLUX.1-schnell 引擎，精準度提升 10 倍！
+                            # 💡 將模型替換為全新的 FLUX.1-schnell 引擎
                             client = InferenceClient(
                                 model="black-forest-labs/FLUX.1-schnell",
                                 token=hf_token.strip(),
                             )
 
-                            # 直接呼叫 text_to_image API，自動回傳 PIL Image 物件
                             image_result = client.text_to_image(final_prompt)
 
                             # 紀錄使用次數
