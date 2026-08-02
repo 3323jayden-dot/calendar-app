@@ -4,20 +4,20 @@ import json
 import os
 import random
 import re
+import sqlite3
 import string
 import zipfile
 from datetime import date, datetime, timedelta
 
 from groq import Groq
+from huggingface_hub import InferenceClient
+import extra_streamlit_components as stx
 import pandas as pd
 from PIL import Image, ImageEnhance, ImageOps
 import pypdf
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
-import streamlit as st
-import requests
-from io import BytesIO
-from PIL import Image
 
 # ==============================================================================
 # 0. 基本頁面配置與檔案設定
@@ -114,15 +114,11 @@ def check_and_update_usage(user_email):
     return True, "", current_usage, limit
 
 
-import extra_streamlit_components as stx
-
 # ==============================================================================
 # 2. 自動免登入檢測 (利用 Streamlit 原生 URL 參數)
 # ==============================================================================
-# 讀取網址上的 user 參數
 url_user = st.query_params.get("user", "")
 
-# 若 Session 尚未登入，但網址帶有有效的 user 帳號，直接自動登入
 if not st.session_state.get("logged_in"):
     if url_user and url_user in users:
         st.session_state.logged_in = True
@@ -133,14 +129,9 @@ if not st.session_state.get("logged_in"):
 
 
 # ==============================================================================
-# 3. 會員驗證系統（未登入顯示獨立登入頁面，已登入解鎖主系統）
+# 3. 會員驗證系統
 # ==============================================================================
-
-# ------------------------------------------------------------------------------
-# 情況 A：使用者【未登入】 -> 顯示居中的登入/註冊介面
-# ------------------------------------------------------------------------------
 if not st.session_state.logged_in:
-    # 隱藏側邊欄，讓登入頁面更乾淨
     st.markdown(
         """
         <style>
@@ -150,7 +141,6 @@ if not st.session_state.logged_in:
         unsafe_allow_html=True,
     )
 
-    # 居中卡片版面
     _, main_col, _ = st.columns([1, 2, 1])
 
     with main_col:
@@ -165,15 +155,10 @@ if not st.session_state.logged_in:
 
         tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 會員註冊"])
 
-        # --- 分頁 1: 帳號登入 ---
         with tab_login:
             with st.form("login_form"):
-                email_input = (
-                    st.text_input("電子郵件 (Email)").strip().lower()
-                )
+                email_input = st.text_input("電子郵件 (Email)").strip().lower()
                 password_input = st.text_input("密碼", type="password")
-
-                # 免重新登入勾選框
                 remember_me = st.checkbox("保持登入狀態（下次自動登入）", value=True)
 
                 submit_login = st.form_submit_button(
@@ -188,7 +173,6 @@ if not st.session_state.logged_in:
                         st.session_state.logged_in = True
                         st.session_state.user_email = email_input
 
-                        # 💡 保持登入：將 Email 寫入網址列參數
                         if remember_me:
                             st.query_params["user"] = email_input
 
@@ -197,12 +181,9 @@ if not st.session_state.logged_in:
                     else:
                         st.error("❌ 帳號或密碼輸入錯誤！")
 
-        # --- 分頁 2: 會員註冊 ---
         with tab_reg:
             with st.form("register_form"):
-                reg_email = (
-                    st.text_input("電子郵件 (Email)").strip().lower()
-                )
+                reg_email = st.text_input("電子郵件 (Email)").strip().lower()
                 reg_name = st.text_input("使用者暱稱").strip()
                 reg_password = st.text_input("設定密碼", type="password")
                 submit_reg = st.form_submit_button(
@@ -226,16 +207,16 @@ if not st.session_state.logged_in:
                             ),
                             "daily_usage": 0,
                             "last_use_date": str(date.today()),
+                            "ai_profile": "",  # ✨ 預設個人化 AI 設定
                         }
                         save_data(USERS_FILE, users)
                         st.success("🎉 註冊成功！請切換至「帳號登入」頁籤進行登入。")
 
-    # 🛑 未登入時停止執行下方的主系統頁面
     st.stop()
 
 
 # ------------------------------------------------------------------------------
-# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與登出按鈕
+# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與個人化 AI 設定
 # ------------------------------------------------------------------------------
 st.sidebar.title("🔐 會員系統")
 
@@ -265,11 +246,26 @@ else:
         text=f"今日 AI 額度：{usage} / {limit} 次",
     )
 
-# 🚪 安全登出按鈕（清除 Session 並且清除網址上的記住登入參數）
+# ✨【新增】個人化 AI 偏好設定專區
+with st.sidebar.expander("👤 個人化 AI 偏好設定", expanded=False):
+    st.caption("設定您的個人背景，讓 AI 產生更精準專屬的回答。")
+    current_profile = u_data.get("ai_profile", "")
+    new_profile = st.text_area(
+        "個人背景與習慣偏好：",
+        value=current_profile,
+        placeholder="例如：我是大學生，平時喜歡簡明扼要的回答，習慣晚上讀書，對程式語言 Python 感興趣...",
+        height=120,
+    )
+    if st.button("💾 儲存 AI 個人化設定", use_container_width=True):
+        users[st.session_state.user_email]["ai_profile"] = new_profile.strip()
+        save_data(USERS_FILE, users)
+        st.toast("✅ AI 個人化偏好設定已更新！", icon="🎉")
+
+# 🚪 安全登出按鈕
 if st.sidebar.button("🚪 安全登出", use_container_width=True):
     st.session_state.logged_in = False
     st.session_state.user_email = ""
-    st.query_params.clear()  # 🧹 清除網址列參數
+    st.query_params.clear()
     st.rerun()
 
 
@@ -311,6 +307,8 @@ if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
                     save_data(USERS_FILE, users)
                     st.success("✅ 會員權限與額度已更新！")
                     st.rerun()
+
+
 # ==============================================================================
 # 4. 主畫面：分頁與模組 (Tabs)
 # ==============================================================================
@@ -327,12 +325,10 @@ tab_ai, tab_img, tab_cal, tab_pdf, tab_處理, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 行程智囊團 (支援模式選擇 + 歷史紀錄儲存與刪除)
+# TAB 0: 🤖 Groq AI 行程智囊團 (支援個人化設定)
 # ------------------------------------------------------------------------------
 with tab_ai:
-    import sqlite3
 
-    # 1. 初始化資料庫結構
     def init_ai_db():
         conn = sqlite3.connect("chat_history.db")
         c = conn.cursor()
@@ -359,7 +355,6 @@ with tab_ai:
 
     init_ai_db()
 
-    # DB 操作輔助函式
     def get_user_sessions(email):
         conn = sqlite3.connect("chat_history.db")
         c = conn.cursor()
@@ -422,7 +417,6 @@ with tab_ai:
         conn.commit()
         conn.close()
 
-    # 2. 定義 AI 模式 Prompts
     SYSTEM_PROMPTS = {
         "📅 行程規劃專家": "你是一個親切且極其專業的繁體中文 AI 時間管理與行程規劃助手，擅長評估空閒時間與最佳化排程。",
         "📝 文案/報告潤飾": "你是一位專業的文案與報告潤飾大師，請協助使用者修飾文字、調整口吻並提供結構建議。",
@@ -430,7 +424,6 @@ with tab_ai:
         "💬 輕鬆閒聊": "你是一個親切友善的對話夥伴，用輕鬆幽默的方式回答使用者的日常生活問題。",
     }
 
-    # 3. 自訂 CSS 樣式
     st.markdown(
         """
         <style>
@@ -449,7 +442,6 @@ with tab_ai:
 
     current_email = st.session_state.get("user_email", "guest")
 
-    # 4. 功能列：選擇模式 + 歷史紀錄切換與刪除
     col_m1, col_m2, col_m3 = st.columns([2, 2, 1])
 
     with col_m1:
@@ -459,14 +451,12 @@ with tab_ai:
             key="ai_mode_select",
         )
 
-    # 取得目前使用者的所有歷史對話
     user_sessions = (
         get_user_sessions(current_email)
         if st.session_state.get("logged_in")
         else []
     )
 
-    # 管理 current_session_id
     if "current_session_id" not in st.session_state or not any(
         s[0] == st.session_state.current_session_id for s in user_sessions
     ):
@@ -518,7 +508,6 @@ with tab_ai:
                     st.session_state.current_session_id = None
                     st.rerun()
 
-    # 載入當前對話紀錄
     if st.session_state.current_session_id:
         st.session_state.messages = get_session_msgs(
             st.session_state.current_session_id
@@ -526,7 +515,6 @@ with tab_ai:
     else:
         st.session_state.messages = []
 
-    # 5. 權限與行事曆整合選項
     col_c1, col_c2 = st.columns([4, 1])
     with col_c1:
         is_pro = st.session_state.get("logged_in", False) and (
@@ -539,7 +527,6 @@ with tab_ai:
             disabled=not is_pro,
         )
 
-    # 6. 渲染聊天視窗
     html_items = ['<div class="chat-scroll-container" id="chat-box">']
     if not st.session_state.messages:
         html_items.append(
@@ -559,7 +546,6 @@ with tab_ai:
     html_items.append("</div>")
     st.markdown("".join(html_items), unsafe_allow_html=True)
 
-    # 7. 接收使用者輸入與 API 呼叫處理
     if prompt := st.chat_input("輸入問題或請 AI 幫你規劃行程..."):
         if not st.session_state.logged_in:
             st.error("⚠️ 請先於左側邊欄「登入帳號」後再使用 AI 對話功能。")
@@ -573,26 +559,21 @@ with tab_ai:
                 "GROQ_API_KEY" not in st.secrets
                 or not st.secrets["GROQ_API_KEY"]
             ):
-                st.error(
-                    "⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`。"
-                )
+                st.error("⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`。")
             else:
                 users[st.session_state.user_email]["daily_usage"] += 1
                 save_data(USERS_FILE, users)
 
-                # 若尚未建立 Session 則自動建立
                 if not st.session_state.current_session_id:
                     st.session_state.current_session_id = create_session(
                         current_email, ai_mode
                     )
 
-                # 儲存與寫入訊息
                 save_msg(st.session_state.current_session_id, "user", prompt)
                 st.session_state.messages.append(
                     {"role": "user", "content": prompt}
                 )
 
-                # 第一句話自動更新為此話頭
                 if len(st.session_state.messages) == 1:
                     title_snippet = (
                         prompt[:10] + "..." if len(prompt) > 10 else prompt
@@ -603,17 +584,27 @@ with tab_ai:
 
                 st.rerun()
 
-    # 8. 呼叫 Groq API 生成回答
+    # 8. 呼叫 Groq API 生成回答（✨ 已注入個人化提示詞）
     if (
         st.session_state.messages
         and st.session_state.messages[-1]["role"] == "user"
     ):
-        with st.spinner("🤖 AI 正在分析行程並思考中..."):
+        with st.spinner("🤖 AI 正在分析行程與個人偏好並思考中..."):
             try:
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-                # 套用選定的模式 Prompt
+                # 基本系統 Prompt
                 system_instruction = SYSTEM_PROMPTS[ai_mode]
+
+                # ✨【個人化核心】注入使用者的個人偏好設定
+                user_prof = users.get(st.session_state.user_email, {}).get(
+                    "ai_profile", ""
+                )
+                if user_prof:
+                    system_instruction += (
+                        f"\n\n【使用者個人背景與偏好設定】\n{user_prof}\n"
+                        f"請在回答時考慮上述個人背景，提供高度個人化、符合其喜好與習慣的回覆。"
+                    )
 
                 if include_cal_data and st.session_state.logged_in:
                     user_evs = get_user_all_events(st.session_state.user_email)
@@ -642,7 +633,6 @@ with tab_ai:
 
                 ai_reply = response.choices[0].message.content
 
-                # 儲存回答至 DB 與 State
                 save_msg(
                     st.session_state.current_session_id, "assistant", ai_reply
                 )
@@ -652,14 +642,17 @@ with tab_ai:
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ 發生錯誤：{e}")
+
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化月曆與行程表 (已升級為原生彈出式日曆選擇器)
+# TAB 1: 📅 視覺化月曆與行程表
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
 
     if not st.session_state.logged_in:
-        st.warning("⚠️ 目前為訪客預覽模式。登入帳號後即可完整編輯、新增與刪除日程。")
+        st.warning(
+            "⚠️ 目前為訪客預覽模式。登入帳號後即可完整編輯、新增與刪除日程。"
+        )
         user_email = "guest"
     else:
         user_email = st.session_state.user_email
@@ -679,16 +672,24 @@ with tab_cal:
             current_cal_code = None
         else:
             current_cal_mode = "shared"
-            current_cal_code = selected_cal_option.split("(代碼: ")[1].replace(")", "")
+            current_cal_code = selected_cal_option.split("(代碼: ")[1].replace(
+                ")", ""
+            )
 
     with col_cal_mgmt:
         if st.session_state.logged_in:
             with st.popover("➕ 管理 / 加入共享行事曆"):
                 st.markdown("#### 👥 建立新的共享行事曆")
-                new_cal_name = st.text_input("共享行事曆名稱", placeholder="例如：專案組、家庭日曆")
+                new_cal_name = st.text_input(
+                    "共享行事曆名稱", placeholder="例如：專案組、家庭日曆"
+                )
                 if st.button("建立共享行事曆", use_container_width=True):
                     if new_cal_name.strip():
-                        inv_code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                        inv_code = "".join(
+                            random.choices(
+                                string.ascii_uppercase + string.digits, k=6
+                            )
+                        )
                         new_cal = {
                             "name": new_cal_name.strip(),
                             "code": inv_code,
@@ -704,125 +705,75 @@ with tab_cal:
                 st.markdown("#### 🔑 透過邀請碼加入")
                 join_code = st.text_input("輸入 6 位邀請碼").strip().upper()
                 if st.button("加入共享行事曆", use_container_width=True):
-                    target_cal = next((c for c in calendars_data if c.get("code") == join_code), None)
+                    target_cal = next(
+                        (
+                            c
+                            for c in calendars_data
+                            if c.get("code") == join_code
+                        ),
+                        None,
+                    )
                     if target_cal:
-                        if user_email not in target_cal.setdefault("members", []):
+                        if (
+                            user_email
+                            not in target_cal.setdefault("members", [])
+                        ):
                             target_cal["members"].append(user_email)
                             save_data(CALENDARS_FILE, calendars_data)
-                            st.success(f"已成功加入「{target_cal['name']}」！")
+                            st.success(
+                                f"已成功加入「{target_cal['name']}」！"
+                            )
                             st.rerun()
 
     if current_cal_mode == "personal":
-        active_events = [e for e in events if e.get("creator") == user_email and not e.get("cal_code")]
+        active_events = [
+            e
+            for e in events
+            if e.get("creator") == user_email and not e.get("cal_code")
+        ]
     else:
-        active_events = [e for e in events if e.get("cal_code") == current_cal_code]
+        active_events = [
+            e for e in events if e.get("cal_code") == current_cal_code
+        ]
 
     c_y, c_m = st.columns(2)
     with c_y:
-        sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
+        sel_year = st.number_input(
+            "選擇年份", min_value=2020, max_value=2030, value=today.year
+        )
     with c_m:
-        sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
+        sel_month = st.number_input(
+            "選擇月份", min_value=1, max_value=12, value=today.month
+        )
 
-    # --- 1. 注入強大的 CSS Grid 樣式 ---
     st.markdown(
         """
         <style>
-        .cal-container {
-            background-color: #f6fbf4;
-            padding: 16px;
-            border-radius: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
-
-        .cal-grid {
-            display: grid !important;
-            grid-template-columns: repeat(7, 1fr) !important;
-            gap: 8px !important;
-            width: 100% !important;
-        }
-
-        .cal-header {
-            text-align: center;
-            font-weight: bold;
-            font-size: 15px;
-            padding: 6px 0;
-        }
+        .cal-container { background-color: #f6fbf4; padding: 16px; border-radius: 20px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .cal-grid { display: grid !important; grid-template-columns: repeat(7, 1fr) !important; gap: 8px !important; width: 100% !important; }
+        .cal-header { text-align: center; font-weight: bold; font-size: 15px; padding: 6px 0; }
         .header-sun { color: #f87171; }
         .header-sat { color: #38bdf8; }
         .header-weekday { color: #52525b; }
-
-        .cal-day-card {
-            background-color: #ffffff;
-            border-radius: 14px;
-            min-height: 75px;
-            padding: 6px 6px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-            display: flex;
-            flex-direction: column;
-            box-sizing: border-box;
-        }
-        .cal-day-card.today {
-            background-color: #00c896 !important;
-        }
-
-        .day-num {
-            font-size: 16px;
-            font-weight: 700;
-            line-height: 1;
-            margin-bottom: 4px;
-        }
+        .cal-day-card { background-color: #ffffff; border-radius: 14px; min-height: 75px; padding: 6px 6px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); display: flex; flex-direction: column; box-sizing: border-box; }
+        .cal-day-card.today { background-color: #00c896 !important; }
+        .day-num { font-size: 16px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
         .num-sun { color: #f87171; }
         .num-sat { color: #38bdf8; }
         .num-weekday { color: #27272a; }
         .today .day-num { color: #ffffff !important; }
-
-        .event-chip {
-            font-size: 10px;
-            padding: 2px 4px;
-            border-radius: 6px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            margin-top: 2px;
-            font-weight: 600;
-        }
+        .event-chip { font-size: 10px; padding: 2px 4px; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; font-weight: 600; }
         .chip-red { background-color: #fde8e8; color: #e11d48; }
         .chip-gray { background-color: #f1f5f9; color: #475569; }
-
-        .upcoming-title {
-            font-weight: 700;
-            color: #71717a;
-            font-size: 14px;
-            margin: 16px 0 8px 0;
-        }
-        .upcoming-card {
-            background-color: #fff1f2;
-            border: 1px solid #fecdd3;
-            border-radius: 20px;
-            padding: 10px 16px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .upcoming-text {
-            color: #e11d48;
-            font-weight: 700;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .upcoming-date {
-            color: #a1a1aa;
-            font-size: 13px;
-        }
+        .upcoming-title { font-weight: 700; color: #71717a; font-size: 14px; margin: 16px 0 8px 0; }
+        .upcoming-card { background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 20px; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .upcoming-text { color: #e11d48; font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+        .upcoming-date { color: #a1a1aa; font-size: 13px; }
         </style>
     """,
         unsafe_allow_html=True,
     )
 
-    # --- 2. 構建 7 欄 HTML 月曆 ---
     cal_obj = calendar.Calendar(firstweekday=6)
     month_days = cal_obj.monthdayscalendar(sel_year, sel_month)
 
@@ -844,32 +795,48 @@ with tab_cal:
                 grid_html += "<div></div>"
             else:
                 day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
-                is_today = (sel_year == today.year and sel_month == today.month and day == today.day)
+                is_today = (
+                    sel_year == today.year
+                    and sel_month == today.month
+                    and day == today.day
+                )
                 day_evs = [e for e in active_events if e.get("date") == day_str]
 
-                num_cls = "num-sun" if idx == 0 else ("num-sat" if idx == 6 else "num-weekday")
-                card_cls = "cal-day-card today" if is_today else "cal-day-card"
+                num_cls = (
+                    "num-sun"
+                    if idx == 0
+                    else ("num-sat" if idx == 6 else "num-weekday")
+                )
+                card_cls = (
+                    "cal-day-card today" if is_today else "cal-day-card"
+                )
 
                 chip_html = ""
                 if day_evs:
                     ev = day_evs[0]
                     title = ev.get("title", "")
                     cate = ev.get("category", "")
-                    chip_cls = "chip-red" if ("考" in title or cate == "重要提醒") else "chip-gray"
+                    chip_cls = (
+                        "chip-red"
+                        if ("考" in title or cate == "重要提醒")
+                        else "chip-gray"
+                    )
                     more = f" (+{len(day_evs)-1})" if len(day_evs) > 1 else ""
                     chip_html = f"<div class='event-chip {chip_cls}'>{title}{more}</div>"
 
                 grid_html += f"<div class='{card_cls}'><div class='day-num {num_cls}'>{day}</div>{chip_html}</div>"
         grid_html += "</div>"
-    
-    grid_html += "</div>"
 
+    grid_html += "</div>"
     st.markdown(grid_html, unsafe_allow_html=True)
 
-    # --- 3. 即將到來 (Upcoming) 行程列表 ---
-    st.markdown("<div class='upcoming-title'>即將到來</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='upcoming-title'>即將到來</div>", unsafe_allow_html=True
+    )
 
-    future_events = [e for e in active_events if e.get("date") >= today.strftime("%Y-%m-%d")]
+    future_events = [
+        e for e in active_events if e.get("date") >= today.strftime("%Y-%m-%d")
+    ]
     future_events.sort(key=lambda x: x.get("date"))
 
     if not future_events:
@@ -878,7 +845,7 @@ with tab_cal:
         for ev in future_events[:5]:
             ev_date = datetime.strptime(ev["date"], "%Y-%m-%d").date()
             delta_days = (ev_date - today).days
-            
+
             if delta_days == 0:
                 day_hint = "今天"
             elif delta_days == 1:
@@ -903,35 +870,39 @@ with tab_cal:
 
     st.divider()
 
-# --- 4. 操作互動區（選擇日期與觸發） ---
     st.markdown("#### 📝 行程點擊與管理")
-    
+
     col_sel_date, col_btn_action = st.columns([3, 1])
-    
+
     with col_sel_date:
         selected_date_obj = st.date_input(
             "請選擇要查看 / 管理的日期：",
             value=today,
             min_value=date(2020, 1, 1),
             max_value=date(2030, 12, 31),
-            key="cal_date_picker"
+            key="cal_date_picker",
         )
         target_date = selected_date_obj.strftime("%Y-%m-%d")
 
     with col_btn_action:
         st.write("")
         st.write("")
-        if st.button("🔍 查看 / 管理此日行程", use_container_width=True, type="primary"):
+        if st.button(
+            "🔍 查看 / 管理此日行程",
+            use_container_width=True,
+            type="primary",
+        ):
             st.session_state["selected_target_date"] = target_date
             st.rerun()
 
-    # --- 5. 行程詳情清單 & ➕ 新增行程功能 ---
-    current_view_date = st.session_state.get("selected_target_date", target_date)
-    current_day_events = [e for e in active_events if e.get("date") == current_view_date]
+    current_view_date = st.session_state.get(
+        "selected_target_date", target_date
+    )
+    current_day_events = [
+        e for e in active_events if e.get("date") == current_view_date
+    ]
 
     with st.expander(f"📌 {current_view_date} 的行程與管理", expanded=True):
-        
-        # --- A. 檢視與刪除現有行程 ---
         st.markdown("##### 📋 當日行程清單")
         if not current_day_events:
             st.info(f"💡 {current_view_date} 當天尚無安排任何行程。")
@@ -939,12 +910,16 @@ with tab_cal:
             for idx, ev in enumerate(current_day_events):
                 col_ev_info, col_ev_del = st.columns([4, 1])
                 with col_ev_info:
-                    st.markdown(f"**• {ev.get('title', '無標題')}**（分類：`{ev.get('category', '一般')}`）")
+                    st.markdown(
+                        f"**• {ev.get('title', '無標題')}**（分類：`{ev.get('category', '一般')}`）"
+                    )
                     if ev.get("note"):
                         st.caption(f"備註：{ev.get('note')}")
                 with col_ev_del:
                     if st.session_state.logged_in:
-                        if st.button("🗑️ 刪除", key=f"del_ev_{current_view_date}_{idx}"):
+                        if st.button(
+                            "🗑️ 刪除", key=f"del_ev_{current_view_date}_{idx}"
+                        ):
                             events.remove(ev)
                             save_data(EVENTS_FILE, events)
                             st.success("已成功刪除行程！")
@@ -952,18 +927,34 @@ with tab_cal:
 
         st.divider()
 
-        # --- B. 新增行程表單 ---
         st.markdown(f"##### ➕ 新增行程至 {current_view_date}")
         if not st.session_state.logged_in:
             st.warning("⚠️ 請先登入帳號才能新增行程。")
         else:
             with st.form(key=f"add_event_form_{current_view_date}"):
-                new_title = st.text_input("行程名稱 / 事項", placeholder="例如：開會、期中考、聚餐")
-                new_cate = st.selectbox("行程分類", ["一般", "重要提醒", "個人私事", "工作會議", "考試 / 作業"])
-                new_note = st.text_area("詳細備註 (選填)", placeholder="補充說明或地點...", height=68)
-                
-                submit_btn = st.form_submit_button("➕ 儲存新增行程", use_container_width=True)
-                
+                new_title = st.text_input(
+                    "行程名稱 / 事項", placeholder="例如：開會、期中考、聚餐"
+                )
+                new_cate = st.selectbox(
+                    "行程分類",
+                    [
+                        "一般",
+                        "重要提醒",
+                        "個人私事",
+                        "工作會議",
+                        "考試 / 作業",
+                    ],
+                )
+                new_note = st.text_area(
+                    "詳細備註 (選填)",
+                    placeholder="補充說明或地點...",
+                    height=68,
+                )
+
+                submit_btn = st.form_submit_button(
+                    "➕ 儲存新增行程", use_container_width=True
+                )
+
                 if submit_btn:
                     if not new_title.strip():
                         st.error("請輸入行程名稱！")
@@ -974,29 +965,42 @@ with tab_cal:
                             "category": new_cate,
                             "note": new_note.strip(),
                             "creator": user_email,
-                            "cal_code": current_cal_code if current_cal_mode == "shared" else None
+                            "cal_code": (
+                                current_cal_code
+                                if current_cal_mode == "shared"
+                                else None
+                            ),
                         }
                         events.append(new_event)
                         save_data(EVENTS_FILE, events)
-                        st.success(f"已成功新增行程「{new_title}」至 {current_view_date}！")
+                        st.success(
+                            f"已成功新增行程「{new_title}」至 {current_view_date}！"
+                        )
                         st.rerun()
+
 # ------------------------------------------------------------------------------
-# TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
+# TAB 2: 📄 PDF 救星
 # ------------------------------------------------------------------------------
 with tab_pdf:
     st.header("📄 PDF 救星工具箱")
     pdf_action = st.radio(
         "選擇要執行的操作：",
-        ["🔓 PDF 解密與密碼移除", "🧩 多檔 PDF 快速合併", "📊 PDF 內文與表格轉 Excel"],
-        horizontal=True
+        [
+            "🔓 PDF 解密與密碼移除",
+            "🧩 多檔 PDF 快速合併",
+            "📊 PDF 內文與表格轉 Excel",
+        ],
+        horizontal=True,
     )
     st.divider()
 
     if pdf_action == "🔓 PDF 解密與密碼移除":
         st.subheader("解密保護的 PDF 檔案")
-        up_pdf = st.file_uploader("上傳密碼保護的 PDF 檔案", type=["pdf"], key="unlock_pdf_input")
+        up_pdf = st.file_uploader(
+            "上傳密碼保護的 PDF 檔案", type=["pdf"], key="unlock_pdf_input"
+        )
         pdf_pwd = st.text_input("請輸入該 PDF 的開啟密碼", type="password")
-        
+
         if up_pdf and pdf_pwd:
             if st.button("🔑 開始解密"):
                 try:
@@ -1006,18 +1010,28 @@ with tab_pdf:
                     writer = pypdf.PdfWriter()
                     for page in reader.pages:
                         writer.add_page(page)
-                    
+
                     out_buf = io.BytesIO()
                     writer.write(out_buf)
                     st.success("🎉 解密成功！")
-                    st.download_button("📥 下載已解密 PDF", out_buf.getvalue(), file_name="unlocked_document.pdf", mime="application/pdf")
+                    st.download_button(
+                        "📥 下載已解密 PDF",
+                        out_buf.getvalue(),
+                        file_name="unlocked_document.pdf",
+                        mime="application/pdf",
+                    )
                 except Exception as e:
                     st.error(f"解密失敗，請檢查密碼是否正確：{e}")
 
     elif pdf_action == "🧩 多檔 PDF 快速合併":
         st.subheader("合併多份 PDF 為單一檔案")
-        pdf_files = st.file_uploader("選擇多個 PDF 檔案", type=["pdf"], accept_multiple_files=True, key="merge_pdf_input")
-        
+        pdf_files = st.file_uploader(
+            "選擇多個 PDF 檔案",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key="merge_pdf_input",
+        )
+
         if pdf_files and st.button("🧩 執行合併"):
             merger = pypdf.PdfWriter()
             for p_file in pdf_files:
@@ -1025,12 +1039,19 @@ with tab_pdf:
             merged_buf = io.BytesIO()
             merger.write(merged_buf)
             st.success("🎉 PDF 合併成功！")
-            st.download_button("📥 下載合併後的 PDF", merged_buf.getvalue(), file_name="merged_output.pdf", mime="application/pdf")
+            st.download_button(
+                "📥 下載合併後的 PDF",
+                merged_buf.getvalue(),
+                file_name="merged_output.pdf",
+                mime="application/pdf",
+            )
 
     elif pdf_action == "📊 PDF 內文與表格轉 Excel":
         st.subheader("提取 PDF 文字與數據至 Excel")
-        pdf_excel_file = st.file_uploader("上傳含有數據或內文的 PDF", type=["pdf"], key="excel_pdf_input")
-        
+        pdf_excel_file = st.file_uploader(
+            "上傳含有數據或內文的 PDF", type=["pdf"], key="excel_pdf_input"
+        )
+
         if pdf_excel_file and st.button("📊 提取資料並生成 Excel"):
             try:
                 reader = pypdf.PdfReader(pdf_excel_file)
@@ -1040,69 +1061,116 @@ with tab_pdf:
                     lines = text.split("\n")
                     for line in lines:
                         if line.strip():
-                            data_rows.append({"頁碼": p_idx + 1, "擷取內容": line.strip()})
-                            
+                            data_rows.append(
+                                {"頁碼": p_idx + 1, "擷取內容": line.strip()}
+                            )
+
                 df = pd.DataFrame(data_rows)
                 excel_buf = io.BytesIO()
-                with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
+                with pd.ExcelWriter(
+                    excel_buf, engine="openpyxl"
+                ) as writer:
                     df.to_excel(writer, index=False, sheet_name="PDF 提取內容")
-                
+
                 st.success(f"🎉 成功提取 {len(data_rows)} 筆資料！")
                 st.dataframe(df.head(10), use_container_width=True)
-                st.download_button("📥 下載 Excel 試算表 (.xlsx)", excel_buf.getvalue(), file_name="pdf_data_extracted.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                st.download_button(
+                    "📥 下載 Excel 試算表 (.xlsx)",
+                    excel_buf.getvalue(),
+                    file_name="pdf_data_extracted.xlsx",
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    ),
+                )
             except Exception as e:
                 st.error(f"提取過程中發生錯誤：{e}")
-
 
 # ------------------------------------------------------------------------------
 # TAB 3: ✂️ AI 圖片處理與去背
 # ------------------------------------------------------------------------------
 with tab_處理:
     st.header("✂️ 圖像編修與智能去背工具")
-    img_file = st.file_uploader("上傳圖片檔案 (JPG / PNG)", type=["jpg", "jpeg", "png"], key="img_proc_input")
-    
+    img_file = st.file_uploader(
+        "上傳圖片檔案 (JPG / PNG)",
+        type=["jpg", "jpeg", "png"],
+        key="img_proc_input",
+    )
+
     if img_file:
         ori_img = Image.open(img_file)
         c_left, c_right = st.columns(2)
-        
+
         with c_left:
             st.image(ori_img, caption="原始圖片預覽", use_container_width=True)
-            
+
         with c_right:
             proc_mode = st.selectbox(
                 "選擇處理模式",
-                ["純白/淺色背景去背 (轉透明 PNG)", "調整尺寸與旋轉", "亮度/對比度微調", "黑白灰階濾鏡"]
+                [
+                    "純白/淺色背景去背 (轉透明 PNG)",
+                    "調整尺寸與旋轉",
+                    "亮度/對比度微調",
+                    "黑白灰階濾鏡",
+                ],
             )
-            
+
             if proc_mode == "純白/淺色背景去背 (轉透明 PNG)":
-                tolerance = st.slider("背景色閥值 (容差度高適用於淺色背景)", 0, 100, 30)
+                tolerance = st.slider(
+                    "背景色閥值 (容差度高適用於淺色背景)", 0, 100, 30
+                )
                 if st.button("✂️ 執行去背"):
                     img_rgba = ori_img.convert("RGBA")
                     datas = img_rgba.getdata()
                     new_datas = []
                     for item in datas:
-                        if item[0] >= (255 - tolerance) and item[1] >= (255 - tolerance) and item[2] >= (255 - tolerance):
+                        if (
+                            item[0] >= (255 - tolerance)
+                            and item[1] >= (255 - tolerance)
+                            and item[2] >= (255 - tolerance)
+                        ):
                             new_datas.append((255, 255, 255, 0))
                         else:
                             new_datas.append(item)
-                            
+
                     img_rgba.putdata(new_datas)
                     out_p = io.BytesIO()
                     img_rgba.save(out_p, format="PNG")
-                    st.image(img_rgba, caption="去背完成結果", use_container_width=True)
-                    st.download_button("📥 下載透明背景 PNG", out_p.getvalue(), file_name="nobg_image.png", mime="image/png")
+                    st.image(
+                        img_rgba, caption="去背完成結果", use_container_width=True
+                    )
+                    st.download_button(
+                        "📥 下載透明背景 PNG",
+                        out_p.getvalue(),
+                        file_name="nobg_image.png",
+                        mime="image/png",
+                    )
 
             elif proc_mode == "調整尺寸與旋轉":
-                w = st.number_input("新寬度 (px)", value=ori_img.width, step=10)
-                h = st.number_input("新高度 (px)", value=ori_img.height, step=10)
+                w = st.number_input(
+                    "新寬度 (px)", value=ori_img.width, step=10
+                )
+                h = st.number_input(
+                    "新高度 (px)", value=ori_img.height, step=10
+                )
                 angle = st.slider("順時針旋轉角度", 0, 360, 0)
-                
+
                 if st.button("💾 套用修改"):
-                    resized_img = ori_img.resize((int(w), int(h))).rotate(angle, expand=True)
+                    resized_img = ori_img.resize(
+                        (int(w), int(h))
+                    ).rotate(angle, expand=True)
                     out_p = io.BytesIO()
                     resized_img.save(out_p, format="PNG")
-                    st.image(resized_img, caption="修改後結果", use_container_width=True)
-                    st.download_button("📥 下載圖片", out_p.getvalue(), file_name="resized_image.png", mime="image/png")
+                    st.image(
+                        resized_img,
+                        caption="修改後結果",
+                        use_container_width=True,
+                    )
+                    st.download_button(
+                        "📥 下載圖片",
+                        out_p.getvalue(),
+                        file_name="resized_image.png",
+                        mime="image/png",
+                    )
 
             elif proc_mode == "亮度/對比度微調":
                 b_val = st.slider("亮度", 0.1, 2.0, 1.0)
@@ -1112,45 +1180,82 @@ with tab_處理:
                     enh_c = ImageEnhance.Contrast(enh_b).enhance(c_val)
                     out_p = io.BytesIO()
                     enh_c.save(out_p, format="PNG")
-                    st.image(enh_c, caption="調色完成預覽", use_container_width=True)
-                    st.download_button("📥 下載調色圖片", out_p.getvalue(), file_name="enhanced_image.png", mime="image/png")
+                    st.image(
+                        enh_c, caption="調色完成預覽", use_container_width=True
+                    )
+                    st.download_button(
+                        "📥 下載調色圖片",
+                        out_p.getvalue(),
+                        file_name="enhanced_image.png",
+                        mime="image/png",
+                    )
 
             elif proc_mode == "黑白灰階濾鏡":
                 if st.button("🎨 轉為黑白"):
                     gray_img = ImageOps.grayscale(ori_img)
                     out_p = io.BytesIO()
                     gray_img.save(out_p, format="PNG")
-                    st.image(gray_img, caption="黑白濾鏡預覽", use_container_width=True)
-                    st.download_button("📥 下載黑白圖片", out_p.getvalue(), file_name="grayscale_image.png", mime="image/png")
-
+                    st.image(
+                        gray_img,
+                        caption="黑白濾鏡預覽",
+                        use_container_width=True,
+                    )
+                    st.download_button(
+                        "📥 下載黑白圖片",
+                        out_p.getvalue(),
+                        file_name="grayscale_image.png",
+                        mime="image/png",
+                    )
 
 # ------------------------------------------------------------------------------
 # TAB 4: 📝 萬用文本總結與防雷助理
 # ------------------------------------------------------------------------------
 with tab_summary:
     st.header("📝 萬用文本總結與防雷條款助理")
-    input_text = st.text_area("請貼上欲分析長文章、新聞、合約條款或說明書內容：", height=220)
-    
+    input_text = st.text_area(
+        "請貼上欲分析長文章、新聞、合約條款或說明書內容：", height=220
+    )
+
     if input_text and st.button("🔍 執行文本總結與關鍵風險分析"):
         col_s1, col_s2 = st.columns(2)
-        sentences = [s.strip() for s in re.split(r'[。！!？?\n]', input_text) if len(s.strip()) > 3]
-        
+        sentences = [
+            s.strip()
+            for s in re.split(r"[。！!？?\n]", input_text)
+            if len(s.strip()) > 3
+        ]
+
         with col_s1:
             st.subheader("💡 核心重點摘要")
             if not sentences:
                 st.write("內容太短，無法進行有效的重點擷取。")
             else:
-                summary_items = sentences[:4] if len(sentences) >= 4 else sentences
+                summary_items = (
+                    sentences[:4] if len(sentences) >= 4 else sentences
+                )
                 for idx, item in enumerate(summary_items, 1):
                     st.markdown(f"**{idx}.** {item}")
 
         with col_s2:
             st.subheader("⚠️ 陷阱與風險關鍵字掃描")
-            risk_keywords = ["違約金", "無條件", "不得異議", "自動續約", "放棄", "負擔費用", "損害賠償", "終止條款", "免責", "利息", "逾期"]
+            risk_keywords = [
+                "違約金",
+                "無條件",
+                "不得異議",
+                "自動續約",
+                "放棄",
+                "負擔費用",
+                "損害賠償",
+                "終止條款",
+                "免責",
+                "利息",
+                "逾期",
+            ]
             found_keywords = [kw for kw in risk_keywords if kw in input_text]
-            
+
             if found_keywords:
-                st.error(f"🚨 注意！偵測到風險關鍵字：**{', '.join(found_keywords)}**")
+                st.error(
+                    f"🚨 注意！偵測到風險關鍵字：**{', '.join(found_keywords)}**"
+                )
                 st.markdown("---")
                 for s in sentences:
                     for rkw in found_keywords:
@@ -1160,42 +1265,62 @@ with tab_summary:
             else:
                 st.success("✅ 未在文章中發現常見的風險與陷阱關鍵字。")
 
-
 # ------------------------------------------------------------------------------
 # TAB 5: 📱 社群 IG/Threads 一鍵切圖
 # ------------------------------------------------------------------------------
 with tab_ig:
     st.header("📱 社群 IG / Threads 一鍵九宮格與連圖裁切")
-    social_file = st.file_uploader("上傳要用於排版的原始照片", type=["jpg", "jpeg", "png"], key="social_crop_input")
-    
+    social_file = st.file_uploader(
+        "上傳要用於排版的原始照片",
+        type=["jpg", "jpeg", "png"],
+        key="social_crop_input",
+    )
+
     if social_file:
         s_img = Image.open(social_file)
-        crop_type = st.radio("選擇裁切模式", ["3x3 九宮格 (IG 牆面拼圖)", "1x3 橫向連圖 (Threads/IG 輪播)"], horizontal=True)
-        
+        crop_type = st.radio(
+            "選擇裁切模式",
+            [
+                "3x3 九宮格 (IG 牆面拼圖)",
+                "1x3 橫向連圖 (Threads/IG 輪播)",
+            ],
+            horizontal=True,
+        )
+
         if st.button("✂️ 執行切圖排版"):
             sw, sh = s_img.size
             crop_results = []
-            
+
             if crop_type == "3x3 九宮格 (IG 牆面拼圖)":
                 min_edge = min(sw, sh)
                 l = (sw - min_edge) / 2
                 t = (sh - min_edge) / 2
                 sq_img = s_img.crop((l, t, l + min_edge, t + min_edge))
-                
+
                 step = min_edge // 3
                 for r in range(3):
                     for c in range(3):
-                        box = (c * step, r * step, (c + 1) * step, (r + 1) * step)
-                        crop_results.append((f"ig_grid_{r+1}_{c+1}.png", sq_img.crop(box)))
-                        
+                        box = (
+                            c * step,
+                            r * step,
+                            (c + 1) * step,
+                            (r + 1) * step,
+                        )
+                        crop_results.append((
+                            f"ig_grid_{r+1}_{c+1}.png",
+                            sq_img.crop(box),
+                        ))
+
             elif crop_type == "1x3 橫向連圖 (Threads/IG 輪播)":
                 step = sw // 3
                 for c in range(3):
                     box = (c * step, 0, (c + 1) * step, sh)
-                    crop_results.append((f"social_carousel_{c+1}.png", s_img.crop(box)))
+                    crop_results.append(
+                        (f"social_carousel_{c+1}.png", s_img.crop(box))
+                    )
 
             st.success(f"🎉 成功切分出 {len(crop_results)} 張圖片！")
-            
+
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w") as zf:
                 for img_name, img_obj in crop_results:
@@ -1203,39 +1328,31 @@ with tab_ig:
                     img_obj.save(b, format="PNG")
                     zf.writestr(img_name, b.getvalue())
 
-            st.download_button("📦 一鍵下載全部圖片 (ZIP 打包檔)", zip_buf.getvalue(), file_name="social_crops.zip", mime="application/zip")
-            
+            st.download_button(
+                "📦 一鍵下載全部圖片 (ZIP 打包檔)",
+                zip_buf.getvalue(),
+                file_name="social_crops.zip",
+                mime="application/zip",
+            )
+
             st.divider()
             preview_cols = st.columns(3)
             for i, (fname, p_img) in enumerate(crop_results):
                 with preview_cols[i % 3]:
                     st.image(p_img, caption=fname, use_container_width=True)
 
-
-# ==============================================================================
-# 5. 頁尾客服資訊 (小字顯示)
-# ==============================================================================
-st.divider()
-footer_html = """
-<div style="text-align: center; color: #888888; font-size: 12px; margin-top: 20px; line-height: 1.6;">
-    <p style="margin: 0;">💬 <b>客服與技術支援</b></p>
-    <p style="margin: 2px 0;">服務時間：週一至週五 09:00 - 18:00</p>
-    <p style="margin: 2px 0;">客服信箱：<a href="mailto:support@example.com" style="color: #007aff;">3323jayden@gmail.com</a> </p>
-    <p style="margin: 6px 0 0 0; font-size: 10px; color: #aaa;">© 2026 共享線上行事曆與數位助理系統 All Rights Reserved.</p>
-</div>
-"""
-st.markdown(footer_html, unsafe_allow_html=True)
-# ==============================================================================
-# 6. AI 圖片生成 (Stable Diffusion XL 官方穩定版)
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# TAB 6: 🎨 AI 圖片生成
+# ------------------------------------------------------------------------------
 with tab_img:
     st.header("🎨 AI 頂級繪圖工房")
-    st.caption("支援中文描述！呼叫原生 SDXL 繪圖引擎，生成 8K 大師質感圖像。")
+    st.caption(
+        "支援中文描述！呼叫原生 SDXL 繪圖引擎，生成 8K 大師質感圖像。"
+    )
 
     col_left, col_right = st.columns([1.8, 1.2])
 
     with col_left:
-        # 1. 提示詞輸入 (支援中文)
         raw_prompt = st.text_area(
             "✍️ 輸入你想畫的畫面 (支援中文或英文)",
             placeholder="例如：一隻戴著太陽眼鏡的柴犬在夏威夷海灘喝椰子水，日光充足，高清寫實",
@@ -1250,7 +1367,6 @@ with tab_img:
             )
 
     with col_right:
-        # 2. 藝術風格選擇 (針對 Stable DiffusionXL 優化的風格詞)
         style_option = st.selectbox(
             "🎭 選擇藝術風格",
             [
@@ -1264,7 +1380,6 @@ with tab_img:
             key="img_style_select",
         )
 
-        # 3. 畫面比例選擇 (SDXL 最擅長的正方形尺寸)
         aspect_ratio = st.selectbox(
             "📐 圖片比例",
             [
@@ -1276,12 +1391,23 @@ with tab_img:
             key="img_ratio_select",
         )
 
-    # 風格詞補強（針對 SDXL）
     style_prompts = {
-        "自然寫實 (Cinematic Realism)": ", photorealistic, 8k resolution, cinematic lighting, highly detailed, professional photography",
-        "日系動漫 (Anime Style)": ", anime style, Japanese illustration, vibrant colors, detailed illustration, clean lines",
-        "賽博朋克 (Cyberpunk Neon)": ", cyberpunk style, neon lights, futuristic city, intense colors, highly detailed",
-        "3D 盲盒雕塑 (3D Cute Render)": ", cute 3D render, Pop Mart style, toy sculpture, smooth lighting, colorful",
+        "自然寫實 (Cinematic Realism)": (
+            ", photorealistic, 8k resolution, cinematic lighting, highly"
+            " detailed, professional photography"
+        ),
+        "日系動漫 (Anime Style)": (
+            ", anime style, Japanese illustration, vibrant colors, detailed"
+            " illustration, clean lines"
+        ),
+        "賽博朋克 (Cyberpunk Neon)": (
+            ", cyberpunk style, neon lights, futuristic city, intense colors,"
+            " highly detailed"
+        ),
+        "3D 盲盒雕塑 (3D Cute Render)": (
+            ", cute 3D render, Pop Mart style, toy sculpture, smooth lighting,"
+            " colorful"
+        ),
         "無風格 (依提示詞自訂)": "",
     }
 
@@ -1303,14 +1429,8 @@ with tab_img:
             if not allowed:
                 st.error(msg)
             else:
-                from huggingface_hub import InferenceClient
-                from io import BytesIO
-                import random
-                from PIL import Image
-
                 final_prompt = raw_prompt.strip()
 
-                # --- A. Groq 魔法提示詞優化 ---
                 groq_client = (
                     globals().get("client")
                     or globals().get("groq_client")
@@ -1320,10 +1440,10 @@ with tab_img:
                 if use_magic_prompt and groq_client:
                     try:
                         with st.spinner("🪄 Groq AI 正在構思藝術提示詞..."):
-                            # 針對 Stable Diffusion 優化的系統提示詞
                             magic_sys = (
-                                "Convert user input into a detailed English image prompt for Stable Diffusion XL."
-                                " Only output the refined English prompt."
+                                "Convert user input into a detailed English"
+                                " image prompt for Stable Diffusion XL. Only"
+                                " output the refined English prompt."
                             )
                             response = groq_client.chat.completions.create(
                                 model="llama-3.3-70b-versatile",
@@ -1334,22 +1454,25 @@ with tab_img:
                                 temperature=0.7,
                                 max_tokens=200,
                             )
-                            final_prompt = response.choices[0].message.content.strip()
+                            final_prompt = (
+                                response.choices[0].message.content.strip()
+                            )
                             st.info(f"🪄 **Groq 優化提示詞**：`{final_prompt}`")
                     except Exception as e:
                         st.caption(f"提示詞優化微幅跳過 ({e})")
 
-                # --- B. 風格詞補強 ---
                 final_prompt += style_prompts[style_option]
 
-                # --- C. 呼叫 Stable Diffusion XL 官方 API ---
-                with st.spinner("🚀 SDXL 大師正在繪製中 (需時約 15-30 秒)..."):
+                with st.spinner(
+                    "🚀 SDXL 大師正在繪製中 (需時約 15-30 秒)..."
+                ):
                     try:
-                        # 💡 關鍵修改：使用 InferenceClient 呼叫指定 SDXL 模型
-                        # 注意：請確保你的 Secrets 裡面有 HF_TOKEN 且它有使用 Inference API 的權限
                         hf_token = st.secrets.get("HF_TOKEN")
                         if not hf_token:
-                            st.error("❌ 找不到 HF_TOKEN！請確認 Streamlit Secrets 設定。")
+                            st.error(
+                                "❌ 找不到 HF_TOKEN！請確認 Streamlit Secrets"
+                                " 設定。"
+                            )
                             st.stop()
 
                         client = InferenceClient(
@@ -1357,16 +1480,16 @@ with tab_img:
                             token=hf_token.strip(),
                         )
 
-                        # 直接生成圖片 (SDK 會自動處理回傳的 Image)
                         image_result = client.text_to_image(final_prompt)
 
-                        # 紀錄使用次數
                         users[st.session_state.user_email]["daily_usage"] = (
-                            users[st.session_state.user_email].get("daily_usage", 0) + 1
+                            users[st.session_state.user_email].get(
+                                "daily_usage", 0
+                            )
+                            + 1
                         )
                         save_data(USERS_FILE, users)
 
-                        # --- D. 顯示生成結果 ---
                         st.success("🎉 SDXL 圖片生成完畢！")
                         st.image(
                             image_result,
@@ -1374,7 +1497,6 @@ with tab_img:
                             use_container_width=True,
                         )
 
-                        # 下載按鈕
                         buf = BytesIO()
                         image_result.save(buf, format="PNG")
                         st.download_button(
@@ -1388,3 +1510,18 @@ with tab_img:
 
                     except Exception as e:
                         st.error(f"❌ 呼叫 SDXL API 失敗，詳細原因：{e}")
+
+
+# ==============================================================================
+# 5. 頁尾客服資訊
+# ==============================================================================
+st.divider()
+footer_html = """
+<div style="text-align: center; color: #888888; font-size: 12px; margin-top: 20px; line-height: 1.6;">
+    <p style="margin: 0;">💬 <b>客服與技術支援</b></p>
+    <p style="margin: 2px 0;">服務時間：週一至週五 09:00 - 18:00</p>
+    <p style="margin: 2px 0;">客服信箱：<a href="mailto:support@example.com" style="color: #007aff;">3323jayden@gmail.com</a> </p>
+    <p style="margin: 6px 0 0 0; font-size: 10px; color: #aaa;">© 2026 共享線上行事曆與數位助理系統 All Rights Reserved.</p>
+</div>
+"""
+st.markdown(footer_html, unsafe_allow_html=True)
