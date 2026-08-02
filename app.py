@@ -1179,7 +1179,7 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6. AI 圖片生成 (Stable Diffusion XL 官方穩定版)
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖工房 (SDXL 官方專線)")
+    st.header("🎨 AI 頂級繪圖工房")
     st.caption("支援中文描述！呼叫原生 SDXL 繪圖引擎，生成 8K 大師質感圖像。")
 
     col_left, col_right = st.columns([1.8, 1.2])
