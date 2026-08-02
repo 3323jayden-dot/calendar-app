@@ -392,14 +392,116 @@ with tab_cal:
         </style>
     """, unsafe_allow_html=True)
 
-    # --- 6. 渲染日曆標頭 ---
+# --- 6. HTML + CSS 終極鎖定 7 欄橫排（點擊直接開彈窗） ---
     cal = calendar.monthcalendar(sel_year, sel_month)
-    weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    weekdays = ["一", "二", "三", "四", "五", "六", "日"]
     
-    header_cols = st.columns(7)
-    for idx, w in enumerate(weekdays):
-        header_cols[idx].markdown(f"<p style='text-align: center; font-weight: bold; color: #555;'>{w}</p>", unsafe_allow_html=True)
+    # 檢查網址是否有帶入點擊日期的參數 ?click_date=YYYY-MM-DD
+    query_p = st.query_params
+    if "click_date" in query_p:
+        clicked_date_str = query_p["click_date"]
+        # 清除網址參數避免重整重複跳出
+        del st.query_params["click_date"]
+        # 觸發行程彈窗
+        show_event_dialog(clicked_date_str)
 
+    # 組合 HTML & CSS (使用 CSS Grid 強制 7 欄，絕不換行直排)
+    html_code = """
+    <style>
+        .cal-wrapper {
+            width: 100%;
+            overflow-x: auto; /* 手機螢幕太窄時可左右滑動，絕不直排 */
+        }
+        .cal-grid {
+            display: grid !important;
+            grid-template-columns: repeat(7, minmax(40px, 1fr)) !important;
+            gap: 6px;
+            width: 100%;
+            min-width: 320px;
+        }
+        .cal-header {
+            text-align: center;
+            font-weight: bold;
+            color: #718096;
+            font-size: 13px;
+            padding: 4px 0;
+        }
+        .cal-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            height: 65px;
+            padding: 4px;
+            box-sizing: border-box;
+            cursor: pointer;
+            transition: all 0.15s ease-in-out;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+        }
+        .cal-card:hover {
+            border-color: #cbd5e0;
+            background-color: #f7fafc;
+            transform: translateY(-1px);
+        }
+        .cal-empty {
+            height: 65px;
+        }
+        .day-num {
+            font-size: 14px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+        .tag-pink {
+            background-color: #ffebee;
+            color: #e53935;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 4px;
+            border-radius: 6px;
+            margin-top: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    </style>
+    <div class="cal-wrapper">
+        <div class="cal-grid">
+    """
+
+    # 1. 渲染星期標頭
+    for w in weekdays:
+        html_code += f'<div class="cal-header">週{w}</div>'
+
+    # 2. 渲染日期格子
+    for week in cal:
+        for day in week:
+            if day == 0:
+                html_code += '<div class="cal-empty"></div>'
+            else:
+                day_str = f"{sel_year}-{sel_month:02d}-{day:02d}"
+                day_events = [e for e in active_events if e.get("date") == day_str]
+                
+                tag_html = ""
+                if day_events:
+                    title = day_events[0]['title']
+                    short_title = title[:4] + ".." if len(title) > 4 else title
+                    tag_html = f'<div class="tag-pink">📌{short_title}</div>'
+                
+                # 點擊格子會更新網址參數並重新整理頁面
+                click_js = f"window.parent.location.href = window.parent.location.pathname + '?click_date={day_str}';"
+                
+                html_code += f'''
+                <div class="cal-card" onclick="{click_js}">
+                    <div class="day-num">{day}</div>
+                    {tag_html}
+                </div>
+                '''
+
+    html_code += "</div></div>"
+
+    # 使用 components 渲染 HTML
+    components.html(html_code, height=480, scrolling=False)
     # --- 7. 渲染日曆日期（可直接點擊）---
     for week in cal:
         cols = st.columns(7)
