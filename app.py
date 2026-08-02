@@ -453,20 +453,7 @@ with tab_ai:
     html_items = ['<div class="chat-scroll-container" id="chat-box">']
     if not st.session_state.messages:
         html_items.append(
-# 1. 動態計算安全稱呼 (未登入或無資料時不報錯)
-# 1. 先計算出安全的名字（未登入預設顯示 "朋友"）
-if not st.session_state.get("logged_in") or not st.session_state.get(
-    "user_email"
-):
-    current_user_name = "朋友"
-else:
-    u_email = st.session_state.user_email
-    user_info = users.get(u_email, {})
-    current_user_name = (
-        user_info.get("nickname")
-        or user_info.get("name")
-        or u_email.split("@")[0].capitalize()
-    )
+  f'<div class="welcome-box"><div class="welcome-title">{current_user_name}，盡情與 AI 規劃行程吧！</div><div class="welcome-sub">當前模式：【{ai_mode}】｜ 可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div></div>')
 
 # 2. 渲染 HTML 容器
 html_items = ['<div class="chat-scroll-container" id="chat-box">']
