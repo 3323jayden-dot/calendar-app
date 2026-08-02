@@ -115,7 +115,6 @@ import extra_streamlit_components as stx
 # ==============================================================================
 # 2. Cookie 管理器初始化與自動免登入檢測
 # ==============================================================================
-@st.cache_resource
 def get_cookie_manager():
     return stx.CookieManager()
 
