@@ -113,36 +113,30 @@ def check_and_update_usage(user_email):
 import extra_streamlit_components as stx
 
 # ==============================================================================
-# 2. Cookie 管理器初始化與自動免登入檢測
+# 2. 自動免登入檢測 (利用 Streamlit 原生 URL 參數)
 # ==============================================================================
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
+# 讀取網址上的 user 參數
+url_user = st.query_params.get("user", "")
 
-
-cookie_manager = get_cookie_manager()
-
-# 讀取瀏覽器中的 Cookie
-auth_cookie = cookie_manager.get(cookie="auth_user_email")
-
-# 如果 Session State 還沒登入，但 Cookie 中存在 Email，自動執行免登入
+# 若 Session 尚未登入，但網址帶有有效的 user 帳號，直接自動登入
 if not st.session_state.get("logged_in"):
-    if auth_cookie and auth_cookie in users:
+    if url_user and url_user in users:
         st.session_state.logged_in = True
-        st.session_state.user_email = auth_cookie
+        st.session_state.user_email = url_user
     else:
         st.session_state.logged_in = False
         st.session_state.user_email = ""
 
 
 # ==============================================================================
-# 3. 會員驗證系統（支援 Cookie 記住登入與安全登出）
+# 3. 會員驗證系統（未登入顯示獨立登入頁面，已登入解鎖主系統）
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
 # 情況 A：使用者【未登入】 -> 顯示居中的登入/註冊介面
 # ------------------------------------------------------------------------------
 if not st.session_state.logged_in:
+    # 隱藏側邊欄，讓登入頁面更乾淨
     st.markdown(
         """
         <style>
@@ -152,6 +146,7 @@ if not st.session_state.logged_in:
         unsafe_allow_html=True,
     )
 
+    # 居中卡片版面
     _, main_col, _ = st.columns([1, 2, 1])
 
     with main_col:
@@ -174,8 +169,8 @@ if not st.session_state.logged_in:
                 )
                 password_input = st.text_input("密碼", type="password")
 
-                # 💡 保持登入開關
-                remember_me = st.checkbox("保持登入狀態（30 天內免重新登入）", value=True)
+                # 免重新登入勾選框
+                remember_me = st.checkbox("保持登入狀態（下次自動登入）", value=True)
 
                 submit_login = st.form_submit_button(
                     "🚀 登入系統", use_container_width=True, type="primary"
@@ -189,14 +184,9 @@ if not st.session_state.logged_in:
                         st.session_state.logged_in = True
                         st.session_state.user_email = email_input
 
-                        # 🍪 若勾選保持登入，寫入 Cookie（有效期限 30 天）
+                        # 💡 保持登入：將 Email 寫入網址列參數
                         if remember_me:
-                            cookie_manager.set(
-                                "auth_user_email",
-                                email_input,
-                                key="set_auth_cookie",
-                                max_age=30 * 24 * 3600,  # 30天 (秒)
-                            )
+                            st.query_params["user"] = email_input
 
                         st.success("🎉 登入成功！正在進入系統...")
                         st.rerun()
@@ -236,11 +226,12 @@ if not st.session_state.logged_in:
                         save_data(USERS_FILE, users)
                         st.success("🎉 註冊成功！請切換至「帳號登入」頁籤進行登入。")
 
+    # 🛑 未登入時停止執行下方的主系統頁面
     st.stop()
 
 
 # ------------------------------------------------------------------------------
-# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與清除 Cookie 登出按鈕
+# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與登出按鈕
 # ------------------------------------------------------------------------------
 st.sidebar.title("🔐 會員系統")
 
@@ -270,17 +261,15 @@ else:
         text=f"今日 AI 額度：{usage} / {limit} 次",
     )
 
-# 🚪 安全登出按鈕（點擊會同步清除 Cookie）
+# 🚪 安全登出按鈕（清除 Session 並且清除網址上的記住登入參數）
 if st.sidebar.button("🚪 安全登出", use_container_width=True):
     st.session_state.logged_in = False
     st.session_state.user_email = ""
-    # 🍪 刪除 Cookie 紀錄
-    cookie_manager.delete("auth_user_email")
+    st.query_params.clear()  # 🧹 清除網址列參數
     st.rerun()
 
-# ------------------------------------------------------------------------------
-# 🛡️ 管理員專屬後台（可直接修改無限 AI 額度）
-# ------------------------------------------------------------------------------
+
+# 🛡️ 管理員專屬後台
 if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
     st.sidebar.divider()
     with st.sidebar.expander("🛡️ 系統後台管理 (Admin Only)", expanded=False):
@@ -294,20 +283,17 @@ if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
                 u_info = users[selected_user_email]
                 st.text(f"暱稱: {u_info.get('name', '未設定')}")
 
-                # 1. 修改會員等級
                 new_role = st.selectbox(
                     "調整會員等級",
                     ["free", "pro"],
                     index=0 if u_info.get("role") == "free" else 1,
                 )
 
-                # 2. ⚡ 開關：開啟/關閉無限 AI 對話權限
                 current_unlimited = u_info.get("is_unlimited", False)
                 new_unlimited = st.toggle(
                     "♾️ 開啟無限 AI 訊息", value=current_unlimited
                 )
 
-                # 3. 修改密碼
                 new_pwd = st.text_input(
                     "修改該帳號密碼",
                     value=u_info.get("password", ""),
