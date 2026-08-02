@@ -240,83 +240,131 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 
 import streamlit.components.v1 as components
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 智囊團（固定輸入框 + 自動滑動聊天視窗）
+# TAB 0: 🤖 Groq AI 智囊團（100% 擬真 Gemini 漸層與懸浮輸入框）
 # ------------------------------------------------------------------------------
 with tab_ai:
-    # 1. 初始化聊天紀錄
+    # 1. 初始化對話紀錄
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 頂部抬頭與重置按鈕
-    c_title, c_reset = st.columns([5, 1])
-    with c_title:
-        st.markdown("### 🤖 Groq 極速 AI 助手")
-    with c_reset:
-        if st.session_state.messages:
+    # 2. 注入極致仿 Gemini 的 CSS 樣式
+    st.markdown("""
+        <style>
+        /* A. 歡迎標題樣式 */
+        .gemini-welcome-container {
+            text-align: center;
+            padding: 80px 20px 40px 20px;
+        }
+        .gemini-welcome-title {
+            font-size: 38px !important;
+            font-weight: 700;
+            background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 12px;
+        }
+        .gemini-welcome-sub {
+            color: #5f6368;
+            font-size: 16px;
+        }
+
+        /* B. 美化 Streamlit 原生輸入框（懸浮、圓角膠囊狀、固定在底部） */
+        div[data-testid="stChatInput"] {
+            position: fixed !important;
+            bottom: 30px !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            max-width: 720px !important;
+            width: 90% !important;
+            z-index: 9999 !important;
+            background-color: #ffffff !important;
+            border-radius: 28px !important;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05) !important;
+            border: 1px solid #e2e8f0 !important;
+            padding: 4px 8px !important;
+        }
+
+        /* C. 底部漸層遮罩（讓對話訊息滑到下方時有淡出隱藏效果） */
+        .gemini-fade-overlay {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 120px;
+            background: linear-gradient(to top, rgba(255,255,255,1) 40%, rgba(255,255,255,0) 100%);
+            pointer-events: none; /* 讓滑鼠可以穿透點擊 */
+            z-index: 9990;
+        }
+
+        /* D. 調整聊天內容底部的留白，避免最後一行被輸入框遮住 */
+        div[data-testid="stChatMessageContainer"] {
+            padding-bottom: 110px !important;
+        }
+        </style>
+
+        <!-- 渲染底部淡出漸層 -->
+        <div class="gemini-fade-overlay"></div>
+    """, unsafe_allow_html=True)
+
+    # 3. 頂部控制按鈕 (重置/新對話)
+    if st.session_state.messages:
+        c_space, c_reset = st.columns([5, 1])
+        with c_reset:
             if st.button("➕ 新對話", use_container_width=True):
                 st.session_state.messages = []
                 st.rerun()
 
-    # 2. 建立固定高度的聊天內容容器 (定高 500px，內容過長自動出現滑桿並滑到底部)
-    chat_container = st.container(height=500, border=True)
+    # 4. 歡迎畫面（無訊息時顯示）
+    if not st.session_state.messages:
+        st.markdown("""
+            <div class="gemini-welcome-container">
+                <div class="gemini-welcome-title">Jayden，儘管發問吧！</div>
+                <div class="gemini-welcome-sub">我可以幫你規劃行程、撰寫文案或解答各種問題</div>
+            </div>
+        """, unsafe_allow_html=True)
 
-    with chat_container:
-        # 尚未有對話時，在區域中央顯示 Gemini 風格歡迎詞
-        if not st.session_state.messages:
-            st.markdown("""
-                <div style="text-align: center; padding-top: 150px;">
-                    <h1 style="background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 32px; font-weight: bold;">
-                        Jayden，儘管發問吧！
-                    </h1>
-                    <p style="color: #718096; font-size: 16px;">我可以幫你規劃行程、撰寫文案或解答各種問題</p>
-                </div>
-            """, unsafe_allow_html=True)
-        else:
-            # 渲染歷史對話紀錄
-            for msg in st.session_state.messages:
-                with st.chat_message(msg["role"]):
-                    st.markdown(msg["content"])
+    # 5. 渲染歷史聊天紀錄 (預設會隨著頁面往下滑動)
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-    # 3. 底部固定輸入框
+    # 6. 懸浮底部輸入框
     if prompt := st.chat_input("問問 AI 助手..."):
         if "GROQ_API_KEY" not in st.secrets or not st.secrets["GROQ_API_KEY"]:
             st.error("⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`，請先至後台設定。")
         else:
-            # 存入使用者訊息
+            # 記錄使用者對話
             st.session_state.messages.append({"role": "user", "content": prompt})
             st.rerun()
 
-    # 4. 處理 AI 回覆 (渲染在容器內部)
+    # 7. AI 回覆處理
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-        with chat_container:
-            with st.chat_message("assistant"):
-                with st.spinner("AI 思考中..."):
-                    try:
-                        from groq import Groq
-                        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+        with st.chat_message("assistant"):
+            with st.spinner("AI 思考中..."):
+                try:
+                    from groq import Groq
+                    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-                        api_messages = [
-                            {"role": "system", "content": "你是一個親切且專業的繁體中文 AI 助手。"}
-                        ] + [
-                            {"role": m["role"], "content": m["content"]}
-                            for m in st.session_state.messages
-                        ]
+                    api_messages = [
+                        {"role": "system", "content": "你是一個親切且專業的繁體中文 AI 助手。"}
+                    ] + [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.messages
+                    ]
 
-                        response = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=api_messages,
-                            temperature=0.7,
-                        )
+                    response = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=api_messages,
+                        temperature=0.7,
+                    )
 
-                        ai_reply = response.choices[0].message.content
-                        st.markdown(ai_reply)
-                        
-                        # 存入歷史並重整刷新視窗位置
-                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-                        st.rerun()
+                    ai_reply = response.choices[0].message.content
+                    st.markdown(ai_reply)
+                    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                    st.rerun()
 
-                    except Exception as e:
-                        st.error(f"❌ 發生錯誤：{e}")
+                except Exception as e:
+                    st.error(f"❌ 發生錯誤：{e}")
 # ------------------------------------------------------------------------------
 # TAB 1: 📅 視覺化日曆網格（7 欄完美不跑版 + 支援直接點擊日期彈窗）
 # ------------------------------------------------------------------------------
