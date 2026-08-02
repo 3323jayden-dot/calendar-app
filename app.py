@@ -207,7 +207,7 @@ if not st.session_state.logged_in:
                             ),
                             "daily_usage": 0,
                             "last_use_date": str(date.today()),
-                            "ai_profile": "",  # ✨ 預設個人化 AI 設定
+                            "ai_profile": "",
                         }
                         save_data(USERS_FILE, users)
                         st.success("🎉 註冊成功！請切換至「帳號登入」頁籤進行登入。")
@@ -216,7 +216,7 @@ if not st.session_state.logged_in:
 
 
 # ------------------------------------------------------------------------------
-# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與個人化 AI 設定
+# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與功能選單
 # ------------------------------------------------------------------------------
 st.sidebar.title("🔐 會員系統")
 
@@ -246,7 +246,27 @@ else:
         text=f"今日 AI 額度：{usage} / {limit} 次",
     )
 
-# ✨【新增】個人化 AI 偏好設定專區
+st.sidebar.divider()
+
+# ✨【側邊欄導覽選單】將原本主畫面的 Tab 移動至此
+st.sidebar.title("📌 功能導覽選單")
+selected_tab = st.sidebar.radio(
+    "請選擇要使用的功能頁面：",
+    [
+        "💻 Groq AI 行程智囊團",
+        "🎨 AI 圖片生成<<開發中>>",
+        "📅 視覺化日曆與行程",
+        "📄 PDF 救星",
+        "✂️ AI 圖片處理與去背",
+        "📝 文本總結與防雷助理",
+        "📱 社群 IG/Threads 一鍵切圖",
+    ],
+    index=0,
+)
+
+st.sidebar.divider()
+
+# 個人化 AI 偏好設定專區
 with st.sidebar.expander("👤 個人化 AI 偏好設定", expanded=False):
     st.caption("設定您的個人背景，讓 AI 產生更精準專屬的回答。")
     current_profile = u_data.get("ai_profile", "")
@@ -267,7 +287,6 @@ if st.sidebar.button("🚪 安全登出", use_container_width=True):
     st.session_state.user_email = ""
     st.query_params.clear()
     st.rerun()
-
 
 # 🛡️ 管理員專屬後台
 if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
@@ -310,24 +329,14 @@ if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
 
 
 # ==============================================================================
-# 4. 主畫面：分頁與模組 (Tabs)
+# 4. 主畫面：依據側邊欄選擇渲染不同功能頁面
 # ==============================================================================
 st.title("⚡ 多功能數位工作助理與行事曆")
 
-tab_ai, tab_img, tab_cal, tab_pdf, tab_處理, tab_summary, tab_ig = st.tabs([
-    "💻 Groq AI 行程智囊團",
-    "🎨 AI 圖片生成<<開發中>>",
-    "📅 視覺化日曆與行程",
-    "📄 PDF 救星",
-    "✂️ AI 圖片處理與去背",
-    "📝 文本總結與防雷助理",
-    "📱 社群 IG/Threads 一鍵切圖",
-])
-
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 行程智囊團 (支援個人化設定)
+# 頁面 1: 🤖 Groq AI 行程智囊團
 # ------------------------------------------------------------------------------
-with tab_ai:
+if selected_tab == "💻 Groq AI 行程智囊團":
 
     def init_ai_db():
         conn = sqlite3.connect("chat_history.db")
@@ -584,7 +593,6 @@ with tab_ai:
 
                 st.rerun()
 
-    # 8. 呼叫 Groq API 生成回答（✨ 已注入個人化提示詞）
     if (
         st.session_state.messages
         and st.session_state.messages[-1]["role"] == "user"
@@ -593,10 +601,8 @@ with tab_ai:
             try:
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-                # 基本系統 Prompt
                 system_instruction = SYSTEM_PROMPTS[ai_mode]
 
-                # ✨【個人化核心】注入使用者的個人偏好設定
                 user_prof = users.get(st.session_state.user_email, {}).get(
                     "ai_profile", ""
                 )
@@ -644,9 +650,179 @@ with tab_ai:
                 st.error(f"❌ 發生錯誤：{e}")
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化月曆與行程表
+# 頁面 2: 🎨 AI 圖片生成<<開發中>>
 # ------------------------------------------------------------------------------
-with tab_cal:
+elif selected_tab == "🎨 AI 圖片生成<<開發中>>":
+    st.header("🎨 AI 頂級繪圖工房")
+    st.caption(
+        "支援中文描述！呼叫原生 SDXL 繪圖引擎，生成 8K 大師質感圖像。"
+    )
+
+    col_left, col_right = st.columns([1.8, 1.2])
+
+    with col_left:
+        raw_prompt = st.text_area(
+            "✍️ 輸入你想畫的畫面 (支援中文或英文)",
+            placeholder="例如：一隻戴著太陽眼鏡的柴犬在夏威夷海灘喝椰子水，日光充足，高清寫實",
+            height=120,
+            key="img_raw_prompt",
+        )
+
+        col_btn1, col_btn2 = st.columns([1, 1])
+        with col_btn1:
+            use_magic_prompt = st.checkbox(
+                "✨ 開啟 Groq 提示詞大師優化 (自動翻譯並補全細節)", value=True
+            )
+
+    with col_right:
+        style_option = st.selectbox(
+            "🎭 選擇藝術風格",
+            [
+                "自然寫實 (Cinematic Realism)",
+                "日系動漫 (Anime Style)",
+                "賽博朋克 (Cyberpunk Neon)",
+                "3D 盲盒雕塑 (3D Cute Render)",
+                "無風格 (依提示詞自訂)",
+            ],
+            index=0,
+            key="img_style_select",
+        )
+
+        aspect_ratio = st.selectbox(
+            "📐 圖片比例",
+            [
+                "1:1 (正方形 1024x1024)",
+                "16:9 (橫向桌布 1280x720)",
+                "9:16 (縱向手機 720x1280)",
+            ],
+            index=0,
+            key="img_ratio_select",
+        )
+
+    style_prompts = {
+        "自然寫實 (Cinematic Realism)": (
+            ", photorealistic, 8k resolution, cinematic lighting, highly"
+            " detailed, professional photography"
+        ),
+        "日系動漫 (Anime Style)": (
+            ", anime style, Japanese illustration, vibrant colors, detailed"
+            " illustration, clean lines"
+        ),
+        "賽博朋克 (Cyberpunk Neon)": (
+            ", cyberpunk style, neon lights, futuristic city, intense colors,"
+            " highly detailed"
+        ),
+        "3D 盲盒雕塑 (3D Cute Render)": (
+            ", cute 3D render, Pop Mart style, toy sculpture, smooth lighting,"
+            " colorful"
+        ),
+        "無風格 (依提示詞自訂)": "",
+    }
+
+    generate_btn = st.button(
+        "🚀 立即生成高畫質圖片",
+        use_container_width=True,
+        type="primary",
+        key="gen_sd_img_btn",
+    )
+
+    if generate_btn:
+        if not raw_prompt.strip():
+            st.warning("⚠️ 請先輸入畫面描述內容！")
+        else:
+            allowed, msg, usage, limit = check_and_update_usage(
+                st.session_state.user_email
+            )
+
+            if not allowed:
+                st.error(msg)
+            else:
+                final_prompt = raw_prompt.strip()
+
+                groq_client = (
+                    globals().get("client")
+                    or globals().get("groq_client")
+                    or st.session_state.get("groq_client")
+                )
+
+                if use_magic_prompt and groq_client:
+                    try:
+                        with st.spinner("🪄 Groq AI 正在構思藝術提示詞..."):
+                            magic_sys = (
+                                "Convert user input into a detailed English"
+                                " image prompt for Stable Diffusion XL. Only"
+                                " output the refined English prompt."
+                            )
+                            response = groq_client.chat.completions.create(
+                                model="llama-3.3-70b-versatile",
+                                messages=[
+                                    {"role": "system", "content": magic_sys},
+                                    {"role": "user", "content": raw_prompt},
+                                ],
+                                temperature=0.7,
+                                max_tokens=200,
+                            )
+                            final_prompt = (
+                                response.choices[0].message.content.strip()
+                            )
+                            st.info(f"🪄 **Groq 優化提示詞**：`{final_prompt}`")
+                    except Exception as e:
+                        st.caption(f"提示詞優化微幅跳過 ({e})")
+
+                final_prompt += style_prompts[style_option]
+
+                with st.spinner(
+                    "🚀 SDXL 大師正在繪製中 (需時約 15-30 秒)..."
+                ):
+                    try:
+                        hf_token = st.secrets.get("HF_TOKEN")
+                        if not hf_token:
+                            st.error(
+                                "❌ 找不到 HF_TOKEN！請確認 Streamlit Secrets"
+                                " 設定。"
+                            )
+                            st.stop()
+
+                        client = InferenceClient(
+                            model="stabilityai/stable-diffusion-xl-base-1.0",
+                            token=hf_token.strip(),
+                        )
+
+                        image_result = client.text_to_image(final_prompt)
+
+                        users[st.session_state.user_email]["daily_usage"] = (
+                            users[st.session_state.user_email].get(
+                                "daily_usage", 0
+                            )
+                            + 1
+                        )
+                        save_data(USERS_FILE, users)
+
+                        st.success("🎉 SDXL 圖片生成完畢！")
+                        st.image(
+                            image_result,
+                            caption=f"優化後的英文提示詞: {final_prompt}",
+                            use_container_width=True,
+                        )
+
+                        buf = io.BytesIO()
+                        image_result.save(buf, format="PNG")
+                        st.download_button(
+                            label="📥 下載高清原圖 (PNG)",
+                            data=buf.getvalue(),
+                            file_name=f"ai_sdxl_{random.randint(1, 99999)}.png",
+                            mime="image/png",
+                            use_container_width=True,
+                            key="dl_img_btn",
+                        )
+
+                    except Exception as e:
+                        st.error(f"❌ 呼叫 SDXL API 失敗，詳細原因：{e}")
+
+# ------------------------------------------------------------------------------
+# 頁面 3: 📅 視覺化日曆與行程
+# ------------------------------------------------------------------------------
+elif selected_tab == "📅 視覺化日曆與行程":
     st.header("📅 視覺化月曆與行程表")
 
     if not st.session_state.logged_in:
@@ -979,9 +1155,9 @@ with tab_cal:
                         st.rerun()
 
 # ------------------------------------------------------------------------------
-# TAB 2: 📄 PDF 救星
+# 頁面 4: 📄 PDF 救星
 # ------------------------------------------------------------------------------
-with tab_pdf:
+elif selected_tab == "📄 PDF 救星":
     st.header("📄 PDF 救星工具箱")
     pdf_action = st.radio(
         "選擇要執行的操作：",
@@ -1086,9 +1262,9 @@ with tab_pdf:
                 st.error(f"提取過程中發生錯誤：{e}")
 
 # ------------------------------------------------------------------------------
-# TAB 3: ✂️ AI 圖片處理與去背
+# 頁面 5: ✂️ AI 圖片處理與去背
 # ------------------------------------------------------------------------------
-with tab_處理:
+elif selected_tab == "✂️ AI 圖片處理與去背":
     st.header("✂️ 圖像編修與智能去背工具")
     img_file = st.file_uploader(
         "上傳圖片檔案 (JPG / PNG)",
@@ -1208,9 +1384,9 @@ with tab_處理:
                     )
 
 # ------------------------------------------------------------------------------
-# TAB 4: 📝 萬用文本總結與防雷助理
+# 頁面 6: 📝 文本總結與防雷助理
 # ------------------------------------------------------------------------------
-with tab_summary:
+elif selected_tab == "📝 文本總結與防雷助理":
     st.header("📝 萬用文本總結與防雷條款助理")
     input_text = st.text_area(
         "請貼上欲分析長文章、新聞、合約條款或說明書內容：", height=220
@@ -1266,9 +1442,9 @@ with tab_summary:
                 st.success("✅ 未在文章中發現常見的風險與陷阱關鍵字。")
 
 # ------------------------------------------------------------------------------
-# TAB 5: 📱 社群 IG/Threads 一鍵切圖
+# 頁面 7: 📱 社群 IG/Threads 一鍵切圖
 # ------------------------------------------------------------------------------
-with tab_ig:
+elif selected_tab == "📱 社群 IG/Threads 一鍵切圖":
     st.header("📱 社群 IG / Threads 一鍵九宮格與連圖裁切")
     social_file = st.file_uploader(
         "上傳要用於排版的原始照片",
@@ -1340,177 +1516,6 @@ with tab_ig:
             for i, (fname, p_img) in enumerate(crop_results):
                 with preview_cols[i % 3]:
                     st.image(p_img, caption=fname, use_container_width=True)
-
-# ------------------------------------------------------------------------------
-# TAB 6: 🎨 AI 圖片生成
-# ------------------------------------------------------------------------------
-with tab_img:
-    st.header("🎨 AI 頂級繪圖工房")
-    st.caption(
-        "支援中文描述！呼叫原生 SDXL 繪圖引擎，生成 8K 大師質感圖像。"
-    )
-
-    col_left, col_right = st.columns([1.8, 1.2])
-
-    with col_left:
-        raw_prompt = st.text_area(
-            "✍️ 輸入你想畫的畫面 (支援中文或英文)",
-            placeholder="例如：一隻戴著太陽眼鏡的柴犬在夏威夷海灘喝椰子水，日光充足，高清寫實",
-            height=120,
-            key="img_raw_prompt",
-        )
-
-        col_btn1, col_btn2 = st.columns([1, 1])
-        with col_btn1:
-            use_magic_prompt = st.checkbox(
-                "✨ 開啟 Groq 提示詞大師優化 (自動翻譯並補全細節)", value=True
-            )
-
-    with col_right:
-        style_option = st.selectbox(
-            "🎭 選擇藝術風格",
-            [
-                "自然寫實 (Cinematic Realism)",
-                "日系動漫 (Anime Style)",
-                "賽博朋克 (Cyberpunk Neon)",
-                "3D 盲盒雕塑 (3D Cute Render)",
-                "無風格 (依提示詞自訂)",
-            ],
-            index=0,
-            key="img_style_select",
-        )
-
-        aspect_ratio = st.selectbox(
-            "📐 圖片比例",
-            [
-                "1:1 (正方形 1024x1024)",
-                "16:9 (橫向桌布 1280x720)",
-                "9:16 (縱向手機 720x1280)",
-            ],
-            index=0,
-            key="img_ratio_select",
-        )
-
-    style_prompts = {
-        "自然寫實 (Cinematic Realism)": (
-            ", photorealistic, 8k resolution, cinematic lighting, highly"
-            " detailed, professional photography"
-        ),
-        "日系動漫 (Anime Style)": (
-            ", anime style, Japanese illustration, vibrant colors, detailed"
-            " illustration, clean lines"
-        ),
-        "賽博朋克 (Cyberpunk Neon)": (
-            ", cyberpunk style, neon lights, futuristic city, intense colors,"
-            " highly detailed"
-        ),
-        "3D 盲盒雕塑 (3D Cute Render)": (
-            ", cute 3D render, Pop Mart style, toy sculpture, smooth lighting,"
-            " colorful"
-        ),
-        "無風格 (依提示詞自訂)": "",
-    }
-
-    generate_btn = st.button(
-        "🚀 立即生成高畫質圖片",
-        use_container_width=True,
-        type="primary",
-        key="gen_sd_img_btn",
-    )
-
-    if generate_btn:
-        if not raw_prompt.strip():
-            st.warning("⚠️ 請先輸入畫面描述內容！")
-        else:
-            allowed, msg, usage, limit = check_and_update_usage(
-                st.session_state.user_email
-            )
-
-            if not allowed:
-                st.error(msg)
-            else:
-                final_prompt = raw_prompt.strip()
-
-                groq_client = (
-                    globals().get("client")
-                    or globals().get("groq_client")
-                    or st.session_state.get("groq_client")
-                )
-
-                if use_magic_prompt and groq_client:
-                    try:
-                        with st.spinner("🪄 Groq AI 正在構思藝術提示詞..."):
-                            magic_sys = (
-                                "Convert user input into a detailed English"
-                                " image prompt for Stable Diffusion XL. Only"
-                                " output the refined English prompt."
-                            )
-                            response = groq_client.chat.completions.create(
-                                model="llama-3.3-70b-versatile",
-                                messages=[
-                                    {"role": "system", "content": magic_sys},
-                                    {"role": "user", "content": raw_prompt},
-                                ],
-                                temperature=0.7,
-                                max_tokens=200,
-                            )
-                            final_prompt = (
-                                response.choices[0].message.content.strip()
-                            )
-                            st.info(f"🪄 **Groq 優化提示詞**：`{final_prompt}`")
-                    except Exception as e:
-                        st.caption(f"提示詞優化微幅跳過 ({e})")
-
-                final_prompt += style_prompts[style_option]
-
-                with st.spinner(
-                    "🚀 SDXL 大師正在繪製中 (需時約 15-30 秒)..."
-                ):
-                    try:
-                        hf_token = st.secrets.get("HF_TOKEN")
-                        if not hf_token:
-                            st.error(
-                                "❌ 找不到 HF_TOKEN！請確認 Streamlit Secrets"
-                                " 設定。"
-                            )
-                            st.stop()
-
-                        client = InferenceClient(
-                            model="stabilityai/stable-diffusion-xl-base-1.0",
-                            token=hf_token.strip(),
-                        )
-
-                        image_result = client.text_to_image(final_prompt)
-
-                        users[st.session_state.user_email]["daily_usage"] = (
-                            users[st.session_state.user_email].get(
-                                "daily_usage", 0
-                            )
-                            + 1
-                        )
-                        save_data(USERS_FILE, users)
-
-                        st.success("🎉 SDXL 圖片生成完畢！")
-                        st.image(
-                            image_result,
-                            caption=f"優化後的英文提示詞: {final_prompt}",
-                            use_container_width=True,
-                        )
-
-                        buf = BytesIO()
-                        image_result.save(buf, format="PNG")
-                        st.download_button(
-                            label="📥 下載高清原圖 (PNG)",
-                            data=buf.getvalue(),
-                            file_name=f"ai_sdxl_{random.randint(1, 99999)}.png",
-                            mime="image/png",
-                            use_container_width=True,
-                            key="dl_img_btn",
-                        )
-
-                    except Exception as e:
-                        st.error(f"❌ 呼叫 SDXL API 失敗，詳細原因：{e}")
-
 
 # ==============================================================================
 # 5. 頁尾客服資訊
