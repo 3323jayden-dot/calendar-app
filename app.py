@@ -1175,49 +1175,98 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6.ai圖片生成
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 智慧圖片生成器")
-    st.caption("輸入提示詞（Prompt），讓 AI 為你繪製精美圖像！")
+    st.header("🎨 AI 頂級繪圖與靈感工房")
+    st.caption("支援中文描述！AI 自動幫你優化提示詞，生成 8K 級別高質感圖像。")
 
-    col_input, col_config = st.columns([2, 1])
+    col_left, col_right = st.columns([1.8, 1.2])
 
-    with col_input:
-        prompt = st.text_area(
-            "請輸入提示詞 (建議使用英文描述，效果最佳)",
-            placeholder="A futuristic cyberpunk city with neon lights, highly detailed, 8k resolution",
-            height=130,
-            key="img_prompt_input",
+    with col_left:
+        # 1. 提示詞輸入 (支援中文)
+        raw_prompt = st.text_area(
+            "✍️ 輸入你想畫的畫面 (支援中文或英文)",
+            placeholder="例如：一隻戴著太陽眼鏡的柴犬在夏威夷海灘喝椰子水，日光充足，高清寫實",
+            height=120,
+            key="img_raw_prompt",
         )
 
-    with col_config:
-        img_width = st.selectbox(
-            "圖片寬度", [1024, 768, 512], index=0, key="img_w",
-            help="💡 建議使用 1024，FLUX 模型相容性最佳！"
+        col_btn1, col_btn2 = st.columns([1, 1])
+        with col_btn1:
+            use_magic_prompt = st.checkbox(
+                "✨ 開啟 Groq 提示詞大師優化 (自動翻譯並補全細節)", value=True
+            )
+
+    with col_right:
+        # 2. 藝術風格選擇
+        style_option = st.selectbox(
+            "🎭 選擇藝術風格",
+            [
+                "自然寫實 (Cinematic Realism)",
+                "日系動漫 (Anime Style)",
+                "賽博朋克 (Cyberpunk Neon)",
+                "3D 盲盒雕塑 (3D Cute Render)",
+                "奇幻水彩 (Fantasy Watercolor)",
+                "無風格 (依提示詞自訂)",
+            ],
+            index=0,
+            key="img_style_select",
         )
-        img_height = st.selectbox(
-            "圖片高度", [1024, 768, 512], index=0, key="img_h",
-            help="💡 建議使用 1024，FLUX 模型相容性最佳！"
+
+        # 3. 畫面比例選擇 (自動換算為相容 1024 的最佳解析度)
+        aspect_ratio = st.selectbox(
+            "📐 圖片比例",
+            [
+                "1:1 (正方形 - 社群貼文/大頭貼)",
+                "16:9 (橫向 - 桌布/YouTube 縮圖)",
+                "9:16 (縱向 - 手機桌布/Reels/Threads)",
+            ],
+            index=0,
+            key="img_ratio_select",
         )
-        model_type = st.selectbox(
-            "風格模型",
-            ["flux", "turbo"],
-            format_func=lambda x: (
-                "FLUX.1 (高品質/細緻)" if x == "flux" else "SD Turbo (快速)"
-            ),
-            key="img_model",
-        )
+
+    # 尺寸自動對應計算
+    ratio_map = {
+        "1:1 (正方形 - 社群貼文/大頭貼)": (1024, 1024),
+        "16:9 (橫向 - 桌布/YouTube 縮圖)": (1280, 720),
+        "9:16 (縱向 - 手機桌布/Reels/Threads)": (720, 1280),
+    }
+    req_w, req_h = ratio_map[aspect_ratio]
+
+    # 風格 Prompt 注入
+    style_prompts = {
+        "自然寫實 (Cinematic Realism)": (
+            ", photorealistic, 8k resolution, cinematic lighting, highly"
+            " detailed, professional photography"
+        ),
+        "日系動漫 (Anime Style)": (
+            ", anime style, Makoto Shinkai style, vibrant colors, detailed"
+            " illustration, masterpiece"
+        ),
+        "賽博朋克 (Cyberpunk Neon)": (
+            ", cyberpunk style, glowing neon lights, futuristic city background,"
+            " highly detailed, 8k"
+        ),
+        "3D 盲盒雕塑 (3D Cute Render)": (
+            ", cute 3D render, Pop Mart style, Octane render, smooth lighting,"
+            " pastel colors, clay texture"
+        ),
+        "奇幻水彩 (Fantasy Watercolor)": (
+            ", fantasy watercolor painting, soft brush strokes, dreamy color"
+            " palette, artistic composition"
+        ),
+        "無風格 (依提示詞自訂)": "",
+    }
 
     generate_btn = st.button(
-        "🚀 開始生成圖片",
+        "🚀 立即生成高畫質圖片",
         use_container_width=True,
         type="primary",
-        key="gen_img_btn",
+        key="gen_pro_img_btn",
     )
 
     if generate_btn:
-        if not prompt.strip():
-            st.warning("⚠️ 請先輸入圖像提示詞！")
+        if not raw_prompt.strip():
+            st.warning("⚠️ 請先輸入畫面描述內容！")
         else:
-            # 檢查用量
             allowed, msg, usage, limit = check_and_update_usage(
                 st.session_state.user_email
             )
@@ -1225,79 +1274,117 @@ with tab_img:
             if not allowed:
                 st.error(msg)
             else:
-                with st.spinner("🎨 AI 正在精心繪製圖片中，請稍候..."):
+                with st.spinner("✨ 系統處理中..."):
                     import random
                     import urllib.parse
                     from io import BytesIO
                     import requests
                     from PIL import Image
 
-                    seed = random.randint(1, 999999)
-                    encoded_prompt = urllib.parse.quote(prompt.strip())
+                    final_prompt = raw_prompt.strip()
 
-                    headers = {
-                        "User-Agent": (
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                            " AppleWebKit/537.36 (KHTML, like Gecko)"
-                            " Chrome/122.0.0.0 Safari/537.36"
-                        )
-                    }
-
-                    # 💡 關鍵技巧：固定向 API 請求 1024 原生最佳尺寸，避免 512 造成伺服器拒絕
-                    req_w = 1024 if img_width < 1024 else img_width
-                    req_h = 1024 if img_height < 1024 else img_height
-
-                    image_result = None
-                    urls_to_try = [
-                        # 主要路線 (FLUX 1024 原生)
-                        f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={req_w}&height={req_h}&seed={seed}&model={model_type}&nologo=true&enhance=true",
-                        # 備用路線
-                        f"https://pollinations.ai/p/{encoded_prompt}?width={req_w}&height={req_h}&seed={seed}&nologo=true",
-                    ]
-
-                    for url in urls_to_try:
+                    # 💡 魔法 1：若勾選魔法優化，用 Groq LLM 將中文轉為 Midjourney 級英文 Prompt
+                    if use_magic_prompt and client:
                         try:
-                            res = requests.get(url, headers=headers, timeout=35)
+                            with st.spinner("🪄 Groq AI 正在構思藝術提示詞..."):
+                                magic_sys = "You are an expert AI Image Prompt Engineer. Convert the user's input into a highly detailed, vivid English text prompt optimized for FLUX.1 image generation. Output ONLY the refined English prompt, nothing else."
+                                response = client.chat.completions.create(
+                                    model="llama-3.3-70b-versatile",
+                                    messages=[
+                                        {
+                                            "role": "system",
+                                            "content": magic_sys,
+                                        },
+                                        {"role": "user", "content": raw_prompt},
+                                    ],
+                                    temperature=0.7,
+                                    max_tokens=200,
+                                )
+                                final_prompt = response.choices[
+                                    0
+                                ].message.content.strip()
+                                st.info(
+                                    f"🪄 **Groq 魔法提示詞**：`{final_prompt}`"
+                                )
+                        except Exception as e:
+                            st.caption(f"提示詞優化微幅跳過 ({e})，使用原提示詞生成")
+
+                    # 疊加風格屬性
+                    final_prompt += style_prompts[style_option]
+
+                    # 💡 魔法 2：高相容生成流程
+                    with st.spinner("🎨 AI 正在使用 FLUX 引擎極速渲染中..."):
+                        seed = random.randint(1, 999999)
+                        encoded_prompt = urllib.parse.quote(final_prompt)
+
+                        headers = {
+                            "User-Agent": (
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                                " AppleWebKit/537.36 (KHTML, like Gecko)"
+                                " Chrome/122.0.0.0 Safari/537.36"
+                            )
+                        }
+
+                        # 請求網址 (強制以 1024 基準請求確保最大成功率)
+                        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={req_w}&height={req_h}&seed={seed}&model=flux&nologo=true&enhance=true"
+
+                        image_result = None
+                        try:
+                            res = requests.get(
+                                image_url, headers=headers, timeout=40
+                            )
                             if (
                                 res.status_code == 200
-                                and "image" in res.headers.get("Content-Type", "").lower()
+                                and "image"
+                                in res.headers.get("Content-Type", "").lower()
                             ):
-                                img = Image.open(BytesIO(res.content))
-                                
-                                # 如果使用者選了小尺寸 (例如 512)，我們在本地自動幫忙 resize，確保不崩潰
-                                if (img_width, img_height) != (req_w, req_h):
-                                    img = img.resize((img_width, img_height), Image.Resampling.LANCZOS)
-                                
-                                image_result = img
-                                break
+                                image_result = Image.open(BytesIO(res.content))
                         except Exception:
-                            continue
+                            # 備用保險線路
+                            try:
+                                backup_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1024&seed={seed}&nologo=true"
+                                res_b = requests.get(
+                                    backup_url, headers=headers, timeout=30
+                                )
+                                if res_b.status_code == 200:
+                                    img_b = Image.open(BytesIO(res_b.content))
+                                    image_result = img_b.resize(
+                                        (req_w, req_h), Image.Resampling.LANCZOS
+                                    )
+                            except Exception:
+                                pass
 
-                    if image_result:
-                        # 紀錄用量
-                        users[st.session_state.user_email]["daily_usage"] = (
-                            users[st.session_state.user_email].get("daily_usage", 0) + 1
-                        )
-                        save_data(USERS_FILE, users)
+                        if image_result:
+                            # 更新用量
+                            users[st.session_state.user_email][
+                                "daily_usage"
+                            ] = (
+                                users[st.session_state.user_email].get(
+                                    "daily_usage", 0
+                                )
+                                + 1
+                            )
+                            save_data(USERS_FILE, users)
 
-                        st.success("✨ 圖片生成成功！")
-                        st.image(
-                            image_result,
-                            caption=f"提示詞: {prompt}",
-                            use_container_width=True,
-                        )
+                            st.success("🎉 頂級 AI 圖片生成完畢！")
+                            st.image(
+                                image_result,
+                                caption=f"最終優化提示詞: {final_prompt}",
+                                use_container_width=True,
+                            )
 
-                        buf = BytesIO()
-                        image_result.save(buf, format="PNG")
-                        st.download_button(
-                            label="📥 下載高清原圖 (PNG)",
-                            data=buf.getvalue(),
-                            file_name=f"ai_image_{seed}.png",
-                            mime="image/png",
-                            use_container_width=True,
-                            key="dl_img_btn",
-                        )
-                    else:
-                        st.error(
-                            "❌ 繪圖伺服器目前較忙碌，請稍等幾秒後再試一次！"
-                        )
+                            buf = BytesIO()
+                            image_result.save(buf, format="PNG")
+                            st.download_button(
+                                label="📥 下載高清原圖 (PNG)",
+                                data=buf.getvalue(),
+                                file_name=f"ai_art_{seed}.png",
+                                mime="image/png",
+                                use_container_width=True,
+                                key="dl_pro_img_btn",
+                            )
+                        else:
+                            st.error(
+                                "❌ 繪圖伺服器目前較忙碌，請再點一次「🚀"
+                                " 立即生成高畫質圖片」！"
+                            )
