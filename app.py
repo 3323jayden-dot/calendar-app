@@ -1223,7 +1223,7 @@ with tab_img:
             if not allowed:
                 st.error(msg)
             else:
-                with st.spinner("🎨 AI 正在繪製圖片中，請稍候..."):
+                with st.spinner("🎨 AI 正在使用 FLUX 高品質模型繪製中..."):
                     import random
                     import urllib.parse
                     from io import BytesIO
@@ -1234,23 +1234,26 @@ with tab_img:
                         seed = random.randint(1, 999999)
                         encoded_prompt = urllib.parse.quote(prompt.strip())
 
-                        # 💡 關鍵修正：加入瀏覽器 User-Agent 避免被 API 伺服器阻擋
+                        # 模擬完整瀏覽器標頭，確保主要路線不會被攔截
                         headers = {
                             "User-Agent": (
                                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                                 " AppleWebKit/537.36 (KHTML, like Gecko)"
-                                " Chrome/120.0.0.0 Safari/537.36"
-                            )
+                                " Chrome/122.0.0.0 Safari/537.36"
+                            ),
+                            "Accept": (
+                                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+                            ),
                         }
 
-                        # API 網址
-                        image_url = f"https://pollinations.ai/p/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&model={model_type}&nologo=true"
+                        # 🎯 主要路線：直接指定 FLUX 頂級模型
+                        primary_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&model={model_type}&nologo=true&enhance=true"
 
                         res = requests.get(
-                            image_url, headers=headers, timeout=45
+                            primary_url, headers=headers, timeout=60
                         )
 
-                        # 驗證回傳的內容是否真的為圖片 (Image)
+                        # 驗證是否成功取得圖片
                         if (
                             res.status_code == 200
                             and "image" in res.headers.get("Content-Type", "")
@@ -1268,7 +1271,7 @@ with tab_img:
                             )
                             save_data(USERS_FILE, users)
 
-                            st.success("✨ 圖片生成成功！")
+                            st.success("✨ 高品質圖片生成成功 (FLUX 主要路線)！")
                             st.image(
                                 image,
                                 caption=f"提示詞: {prompt}",
@@ -1282,14 +1285,14 @@ with tab_img:
                             st.download_button(
                                 label="📥 下載高清原圖 (PNG)",
                                 data=byte_im,
-                                file_name=f"ai_image_{seed}.png",
+                                file_name=f"ai_flux_{seed}.png",
                                 mime="image/png",
                                 use_container_width=True,
                                 key="dl_img_btn",
                             )
                         else:
-                            # 備用線路：若主 API 忙碌，切換至閃電模式
-                            backup_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&nologo=true"
+                            # 備用路線 (當 FLUX 主要伺服器滿載時的保險)
+                            backup_url = f"https://pollinations.ai/p/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&nologo=true"
                             res_backup = requests.get(
                                 backup_url, headers=headers, timeout=45
                             )
@@ -1307,7 +1310,7 @@ with tab_img:
                                 )
                                 save_data(USERS_FILE, users)
 
-                                st.success("✨ 圖片生成成功 (備用線路)！")
+                                st.success("✨ 圖片生成成功！")
                                 st.image(
                                     image,
                                     caption=f"提示詞: {prompt}",
@@ -1326,8 +1329,7 @@ with tab_img:
                                 )
                             else:
                                 st.error(
-                                    "❌ 繪圖伺服器目前較擁擠，請稍等 10"
-                                    " 秒後重新點擊生成！"
+                                    "❌ 伺服器目前較忙碌，請稍等幾秒後再試一次！"
                                 )
 
                     except Exception as e:
