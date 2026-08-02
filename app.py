@@ -1175,8 +1175,8 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6.ai圖片生成
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1 / SDXL 精確版)")
-    st.caption("支援中文描述！精準繪製高品質寫實圖像，告別莫名其妙的水墨畫。")
+    st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1 精確版)")
+    st.caption("支援中文描述！呼叫原生 FLUX.1 極速引擎，生成大師質感圖像。已優化提示詞逻辑，告別亂畫！")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
@@ -1191,8 +1191,9 @@ with tab_img:
 
         col_btn1, col_btn2 = st.columns([1, 1])
         with col_btn1:
+            # 預設開啟，但底層邏輯已修改為「只翻譯不加戲」
             use_magic_prompt = st.checkbox(
-                "✨ 開啟 Groq 提示詞大師優化 (自動翻譯並補全細節)", value=True
+                "✨ 開啟 Groq 精確翻譯大師 (只翻譯不亂加細節)", value=True, key="img_use_magic"
             )
 
     with col_right:
@@ -1211,23 +1212,32 @@ with tab_img:
             key="img_style_select",
         )
 
-        # 3. 模型選擇 (解決跑圖偏差)
-        model_choice = st.selectbox(
-            "🤖 選擇繪圖引擎",
+        # 3. 畫面比例選擇
+        aspect_ratio = st.selectbox(
+            "📐 圖片比例",
             [
-                "FLUX.1 Schnell (極速寫實/推薦)",
-                "SDXL Lightning (4-Step 高清超快)",
+                "1:1 (正方形 - 社群貼文/大頭貼)",
+                "16:9 (橫向 - 桌布/YouTube 縮圖)",
+                "9:16 (縱向 - 手機桌布/Reels/Threads)",
             ],
             index=0,
-            key="img_model_select",
+            key="img_ratio_select",
         )
 
+    # 尺寸自動換算 (優化解析度)
+    ratio_map = {
+        "1:1 (正方形 - 社群貼文/大頭貼)": (1024, 1024),
+        "16:9 (橫向 - 桌布/YouTube 縮圖)": (1024, 576),
+        "9:16 (縱向 - 手機桌布/Reels/Threads)": (576, 1024),
+    }
+    req_w, req_h = ratio_map[aspect_ratio]
+
     style_prompts = {
-        "自然寫實 (Cinematic Realism)": ", photorealistic, 8k resolution, cinematic lighting, highly detailed, sharp focus, masterwork, professional photography",
-        "日系動漫 (Anime Style)": ", anime style, Makoto Shinkai style, vibrant colors, incredibly detailed illustration, 8k, masterpiece, clean lines",
-        "賽博朋克 (Cyberpunk Neon)": ", cyberpunk style, glowing neon lights, futuristic city background, highly detailed, 8k, atmospheric lighting",
-        "3D 盲盒雕塑 (3D Cute Render)": ", cute 3D render, Pop Mart style, Octane render, smooth lighting, pastel colors, clay texture, highly detailed",
-        "奇幻水彩 (Fantasy Watercolor)": ", fantasy watercolor painting, soft brush strokes, dreamy color palette, artistic composition, incredibly detailed, 8k",
+        "自然寫實 (Cinematic Realism)": ", 8k resolution, cinematic lighting, photorealistic, highly detailed, professional photography, masterwork",
+        "日系動漫 (Anime Style)": ", anime style, vibrant colors, detailed illustration, masterpiece, clean lines, Makoto Shinkai style",
+        "賽博朋克 (Cyberpunk Neon)": ", cyberpunk style, glowing neon lights, futuristic city background, atmospheric lighting, highly detailed, atmospheric",
+        "3D 盲盒雕塑 (3D Cute Render)": ", cute 3D render, Pop Mart style, smooth lighting, pastel colors, clay texture, Pop Mart style blind box",
+        "奇幻水彩 (Fantasy Watercolor)": ", fantasy watercolor painting, soft brush strokes, dreamy color palette, artistic composition, incredible details",
         "無風格 (依提示詞自訂)": "",
     }
 
@@ -1235,7 +1245,7 @@ with tab_img:
         "🚀 立即生成高畫質圖片",
         use_container_width=True,
         type="primary",
-        key="gen_hf_img_btn",
+        key="gen_pro_img_btn",
     )
 
     if generate_btn:
@@ -1259,9 +1269,10 @@ with tab_img:
                     from io import BytesIO
                     from huggingface_hub import InferenceClient
 
-                    final_prompt = raw_prompt.strip()
+                    # 核心變數初始化
+                    final_user_content = raw_prompt.strip()
 
-                    # Groq 提示詞優化
+                    # Groq 提示詞優化邏輯 (徹底修正：奪回主導權！)
                     groq_client = (
                         globals().get("client")
                         or globals().get("groq_client")
@@ -1270,11 +1281,16 @@ with tab_img:
 
                     if use_magic_prompt and groq_client:
                         try:
-                            with st.spinner("🪄 Groq AI 正在構思藝術提示詞..."):
+                            # 💡 💡 💡 核心修正：System Prompt 徹底大改！💡 💡 💡
+                            with st.spinner("🪄 Groq AI 正在構思藝術提示詞 (精確翻譯不加戲版)..."):
                                 magic_sys = (
-                                    "You are an expert AI Image Prompt Engineer."
-                                    " Convert the user's input into a highly detailed, vivid English text prompt"
-                                    " optimized for modern AI image generation. Output ONLY the refined English prompt, nothing else."
+                                    "You are an expert AI Image Prompt Translator. "
+                                    "Your sole task is to accurately translate the user's input from Chinese into a concise, vivid English text prompt. "
+                                    "Keep the translated English as close to the original user description as possible. "
+                                    "DO NOT add any extra details, stylistic interpretations, backgrounds, or artistic elements that the user did not explicitly mention. "
+                                    "If the user did not specify a style, DO NOT add one. "
+                                    "DO NOT focus on things like ancient art, hair buns, construction cranes, or any other elements unless mentioned by the user. "
+                                    "Provide ONLY the English translation, nothing else."
                                 )
                                 response = groq_client.chat.completions.create(
                                     model="llama-3.3-70b-versatile",
@@ -1282,29 +1298,33 @@ with tab_img:
                                         {"role": "system", "content": magic_sys},
                                         {"role": "user", "content": raw_prompt},
                                     ],
-                                    temperature=0.7,
+                                    temperature=0.3, # 💡 💡 💡 降低溫度，讓翻译更精確，減少發散
                                     max_tokens=250,
                                 )
-                                final_prompt = response.choices[0].message.content.strip()
-                                st.info(f"🪄 **Groq 魔法提示詞**：`{final_prompt}`")
+                                final_user_content = response.choices[0].message.content.strip()
+                                st.info(f"🪄 **Groq 魔法提示詞**：`{final_user_content}`")
                         except Exception as e:
                             st.caption(f"提示詞優化微幅跳過 ({e})")
 
-                    final_prompt += style_prompts[style_option]
+                    # 💡 💡 💡 核心修正：強制使用者內容在前，風格前置詞在後 💡 💡 💡
+                    full_final_prompt = f"{final_user_content}{style_prompts[style_option]}"
 
-                    # 根據選擇切換精準模型
-                    target_model = "black-forest-labs/FLUX.1-schnell" if "FLUX" in model_choice else "ByteDance/SDXL-Lightning"
-
-                    with st.spinner(f"🚀 AI 正在使用 {model_choice} 繪畫中..."):
+                    with st.spinner("🚀 原生 FLUX.1 繪畫中 (需時約 10-20 秒)...告別山水畫與頭束！"):
                         try:
+                            # 使用官方 SDK 的 InferenceClient (最穩定)
                             client = InferenceClient(
                                 token=hf_token.strip(),
                             )
 
-                            # 使用指定模型的 text_to_image
+                            # 直接呼叫 text_to_image API，FLUX 模型不需要指定特定的 Provider
                             image_result = client.text_to_image(
-                                prompt=final_prompt,
-                                model=target_model
+                                full_final_prompt,
+                                model="black-forest-labs/FLUX.1-schnell", # 指定 FLUX
+                                parameters={
+                                    "width": req_w,
+                                    "height": req_h,
+                                    "seed": random.randint(1, 999999),
+                                }
                             )
 
                             # 紀錄使用次數
@@ -1313,10 +1333,10 @@ with tab_img:
                             )
                             save_data(USERS_FILE, users)
 
-                            st.success("🎉 圖片生成完畢！")
+                            st.success("🎉 圖片生成完畢！主體精確，告別莫名其妙的水墨畫！")
                             st.image(
                                 image_result,
-                                caption=f"最終優化提示詞: {final_prompt}",
+                                caption=f"最終優化提示詞: {full_final_prompt}",
                                 use_container_width=True,
                             )
 
@@ -1325,11 +1345,11 @@ with tab_img:
                             st.download_button(
                                 label="📥 下載高清原圖 (PNG)",
                                 data=buf.getvalue(),
-                                file_name=f"ai_gen_{random.randint(1, 999999)}.png",
+                                file_name=f"ai_flux_gen_{random.randint(1, 999999)}.png",
                                 mime="image/png",
                                 use_container_width=True,
                                 key="dl_pro_img_btn",
                             )
 
                         except Exception as e:
-                            st.error(f"❌ 繪圖失敗，詳細原因：{e}")
+                            st.error(f"❌ 繪圖失敗，請稍候再試。詳細原因：{e}")
