@@ -113,31 +113,47 @@ def check_and_update_usage(user_email):
 import extra_streamlit_components as stx
 
 # ==============================================================================
-# 2. 自動免登入檢測 (利用 URL 網址參數，免安裝外掛)
+# 2. Cookie 管理器初始化與自動免登入檢測
 # ==============================================================================
-# 讀取網址上的 token (例如: ?user=jayden@example.com)
-query_params = st.query_params
-url_user = query_params.get("user", "")
+@st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager()
 
+
+cookie_manager = get_cookie_manager()
+
+# 讀取瀏覽器中的 Cookie
+auth_cookie = cookie_manager.get(cookie="auth_user_email")
+
+# 如果 Session State 還沒登入，但 Cookie 中存在 Email，自動執行免登入
 if not st.session_state.get("logged_in"):
-    if url_user and url_user in users:
+    if auth_cookie and auth_cookie in users:
         st.session_state.logged_in = True
-        st.session_state.user_email = url_user
+        st.session_state.user_email = auth_cookie
     else:
         st.session_state.logged_in = False
         st.session_state.user_email = ""
 
 
 # ==============================================================================
-# 3. 會員驗證系統
+# 3. 會員驗證系統（支援 Cookie 記住登入與安全登出）
 # ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 情況 A：使用者【未登入】 -> 顯示居中的登入/註冊介面
+# ------------------------------------------------------------------------------
 if not st.session_state.logged_in:
     st.markdown(
-        """<style>[data-testid="stSidebar"] {display: none;}</style>""",
+        """
+        <style>
+            [data-testid="stSidebar"] {display: none;}
+        </style>
+    """,
         unsafe_allow_html=True,
     )
 
     _, main_col, _ = st.columns([1, 2, 1])
+
     with main_col:
         st.markdown(
             "<h1 style='text-align: center;'>🔐 多功能數位工作助理</h1>",
@@ -150,15 +166,17 @@ if not st.session_state.logged_in:
 
         tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 會員註冊"])
 
+        # --- 分頁 1: 帳號登入 ---
         with tab_login:
             with st.form("login_form"):
                 email_input = (
                     st.text_input("電子郵件 (Email)").strip().lower()
                 )
                 password_input = st.text_input("密碼", type="password")
-                remember_me = st.checkbox(
-                    "保持登入狀態 (記住這台裝置)", value=True
-                )
+
+                # 💡 保持登入開關
+                remember_me = st.checkbox("保持登入狀態（30 天內免重新登入）", value=True)
+
                 submit_login = st.form_submit_button(
                     "🚀 登入系統", use_container_width=True, type="primary"
                 )
@@ -171,15 +189,21 @@ if not st.session_state.logged_in:
                         st.session_state.logged_in = True
                         st.session_state.user_email = email_input
 
-                        # 💡 記住登入：把 email 寫入 URL 網址列，下次點這個書籤/網址直接免登入
+                        # 🍪 若勾選保持登入，寫入 Cookie（有效期限 30 天）
                         if remember_me:
-                            st.query_params["user"] = email_input
+                            cookie_manager.set(
+                                "auth_user_email",
+                                email_input,
+                                key="set_auth_cookie",
+                                max_age=30 * 24 * 3600,  # 30天 (秒)
+                            )
 
                         st.success("🎉 登入成功！正在進入系統...")
                         st.rerun()
                     else:
                         st.error("❌ 帳號或密碼輸入錯誤！")
 
+        # --- 分頁 2: 會員註冊 ---
         with tab_reg:
             with st.form("register_form"):
                 reg_email = (
@@ -211,15 +235,48 @@ if not st.session_state.logged_in:
                         }
                         save_data(USERS_FILE, users)
                         st.success("🎉 註冊成功！請切換至「帳號登入」頁籤進行登入。")
+
     st.stop()
 
-# 🚪 安全登出按鈕（點擊會同時清除網址上的 user 參數）
-# 在已登入側邊欄區域的登出按鈕寫法：
-# if st.sidebar.button("🚪 安全登出", use_container_width=True):
-#     st.session_state.logged_in = False
-#     st.session_state.user_email = ""
-#     st.query_params.clear()  # 清除網址記住的登入資訊
-#     st.rerun()
+
+# ------------------------------------------------------------------------------
+# 情況 B：使用者【已登入】 -> 在側邊欄顯示使用者資訊與清除 Cookie 登出按鈕
+# ------------------------------------------------------------------------------
+st.sidebar.title("🔐 會員系統")
+
+u_data = users.get(st.session_state.user_email, {})
+current_user_name = u_data.get("name", "會員")
+user_role = u_data.get("role", "free")
+is_unlimited = u_data.get("is_unlimited", False) or (
+    st.session_state.user_email == ADMIN_EMAIL
+)
+
+role_badge = (
+    "👑 Admin / Pro"
+    if st.session_state.user_email == ADMIN_EMAIL
+    else ("⭐ Pro 尊榮會員" if user_role == "pro" else "🌱 Free 免費會員")
+)
+
+st.sidebar.success(f"歡迎回來，**{current_user_name}**！")
+st.sidebar.markdown(f"**目前身分**：`{role_badge}`")
+
+# 顯示用量狀態
+_, _, usage, limit = check_and_update_usage(st.session_state.user_email)
+if is_unlimited or limit == "∞":
+    st.sidebar.info(f"♾️ AI 訊息：**無限量暢聊** (今日已用 {usage} 次)")
+else:
+    st.sidebar.progress(
+        min(usage / limit, 1.0),
+        text=f"今日 AI 額度：{usage} / {limit} 次",
+    )
+
+# 🚪 安全登出按鈕（點擊會同步清除 Cookie）
+if st.sidebar.button("🚪 安全登出", use_container_width=True):
+    st.session_state.logged_in = False
+    st.session_state.user_email = ""
+    # 🍪 刪除 Cookie 紀錄
+    cookie_manager.delete("auth_user_email")
+    st.rerun()
 
 # ------------------------------------------------------------------------------
 # 🛡️ 管理員專屬後台（可直接修改無限 AI 額度）
