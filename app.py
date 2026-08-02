@@ -312,7 +312,7 @@ if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
 # ==============================================================================
 st.title("⚡ 多功能數位工作助理與行事曆")
 
-tab_ai, tab_img, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
+tab_ai, tab_img, tab_cal, tab_pdf, tab_處理, tab_summary, tab_ig = st.tabs([
     "💻 Groq AI 行程智囊團",
     "🎨 AI 圖片生成",
     "📅 視覺化日曆與行程",
