@@ -1176,81 +1176,91 @@ footer_html = """
 """
 st.markdown(footer_html, unsafe_allow_html=True)
 # ==============================================================================
-# 6. AI 圖片生成 (Pollinations FLUX - 精準修復版)
+# 6. AI 圖片生成 (Stable Diffusion XL 官方穩定版)
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖工房 (FLUX 引擎 - 精準修復版)")
-    st.caption("修復隨機人像問題！直接對齊 Prompt，精準出圖。")
+    st.header("🎨 AI 頂級繪圖工房 (SDXL 官方專線)")
+    st.caption("支援中文描述！呼叫原生 SDXL 繪圖引擎，生成 8K 大師質感圖像。")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
     with col_left:
+        # 1. 提示詞輸入 (支援中文)
         raw_prompt = st.text_area(
-            "✍️ 輸入你想畫的畫面 (支援中文)",
+            "✍️ 輸入你想畫的畫面 (支援中文或英文)",
             placeholder="例如：一隻戴著太陽眼鏡的柴犬在夏威夷海灘喝椰子水，日光充足，高清寫實",
             height=120,
-            key="poll_raw_prompt",
+            key="img_raw_prompt",
         )
 
-        use_magic_prompt = st.checkbox(
-            "✨ 開啟 Groq 提示詞優化 (僅精準翻譯)", value=True, key="poll_magic_chk"
-        )
+        col_btn1, col_btn2 = st.columns([1, 1])
+        with col_btn1:
+            use_magic_prompt = st.checkbox(
+                "✨ 開啟 Groq 提示詞大師優化 (自動翻譯並補全細節)", value=True
+            )
 
     with col_right:
+        # 2. 藝術風格選擇 (針對 Stable DiffusionXL 優化的風格詞)
         style_option = st.selectbox(
-            "🎭 選擇風格",
+            "🎭 選擇藝術風格",
             [
-                "自然寫實 (Photorealistic)",
-                "日系動漫 (Anime)",
-                "賽博朋克 (Cyberpunk)",
-                "3D 盲盒 (3D Render)",
-                "無風格",
+                "自然寫實 (Cinematic Realism)",
+                "日系動漫 (Anime Style)",
+                "賽博朋克 (Cyberpunk Neon)",
+                "3D 盲盒雕塑 (3D Cute Render)",
+                "無風格 (依提示詞自訂)",
             ],
             index=0,
-            key="poll_style_select",
+            key="img_style_select",
         )
 
+        # 3. 畫面比例選擇 (SDXL 最擅長的正方形尺寸)
         aspect_ratio = st.selectbox(
-            "📐 圖片尺寸",
-            ["1:1 (正方形 1024x1024)", "16:9 (橫向 1280x720)", "9:16 (縱向 720x1280)"],
+            "📐 圖片比例",
+            [
+                "1:1 (正方形 1024x1024)",
+                "16:9 (橫向桌布 1280x720)",
+                "9:16 (縱向手機 720x1280)",
+            ],
             index=0,
-            key="poll_ratio_select",
+            key="img_ratio_select",
         )
 
+    # 風格詞補強（針對 SDXL）
     style_prompts = {
-        "自然寫實 (Photorealistic)": ", photorealistic, 8k resolution, cinematic lighting, highly detailed, sharp focus",
-        "日系動漫 (Anime)": ", anime style, vibrant colors, detailed illustration, clean lines",
-        "賽博朋克 (Cyberpunk)": ", cyberpunk style, glowing neon lights, futuristic city background",
-        "3D 盲盒 (3D Render)": ", cute 3D render, Pop Mart style, smooth lighting",
-        "無風格": "",
+        "自然寫實 (Cinematic Realism)": ", photorealistic, 8k resolution, cinematic lighting, highly detailed, professional photography",
+        "日系動漫 (Anime Style)": ", anime style, Japanese illustration, vibrant colors, detailed illustration, clean lines",
+        "賽博朋克 (Cyberpunk Neon)": ", cyberpunk style, neon lights, futuristic city, intense colors, highly detailed",
+        "3D 盲盒雕塑 (3D Cute Render)": ", cute 3D render, Pop Mart style, toy sculpture, smooth lighting, colorful",
+        "無風格 (依提示詞自訂)": "",
     }
 
-    size_mapping = {
-        "1:1 (正方形 1024x1024)": (1024, 1024),
-        "16:9 (橫向 1280x720)": (1280, 720),
-        "9:16 (縱向 720x1280)": (720, 1280),
-    }
-
-    generate_btn = st.button("🚀 立即生成高畫質圖片", use_container_width=True, type="primary", key="gen_poll_btn")
+    generate_btn = st.button(
+        "🚀 立即生成高畫質圖片",
+        use_container_width=True,
+        type="primary",
+        key="gen_sd_img_btn",
+    )
 
     if generate_btn:
         if not raw_prompt.strip():
-            st.warning("⚠️ 請先輸入畫面描述！")
+            st.warning("⚠️ 請先輸入畫面描述內容！")
         else:
-            allowed, msg, usage, limit = check_and_update_usage(st.session_state.user_email)
+            allowed, msg, usage, limit = check_and_update_usage(
+                st.session_state.user_email
+            )
 
             if not allowed:
                 st.error(msg)
             else:
-                import urllib.parse
-                import random
-                import requests
+                from huggingface_hub import InferenceClient
                 from io import BytesIO
+                import random
                 from PIL import Image
 
                 final_prompt = raw_prompt.strip()
 
-                # 💡 修復 Groq 提示詞：嚴格限制只做直譯與關鍵字補強，不加怪詞
+                # --- A. Groq 魔法提示詞優化 ---
                 groq_client = (
                     globals().get("client")
                     or globals().get("groq_client")
@@ -1259,10 +1269,11 @@ with tab_img:
 
                 if use_magic_prompt and groq_client:
                     try:
-                        with st.spinner("🪄 正在精準翻譯 Prompt..."):
+                        with st.spinner("🪄 Groq AI 正在構思藝術提示詞..."):
+                            # 針對 Stable Diffusion 優化的系統提示詞
                             magic_sys = (
-                                "Translate the user's input directly into a concise English text-to-image prompt. "
-                                "Do not add any extra scenes, subjects, or abstract words. Output ONLY the translated prompt."
+                                "Convert user input into a detailed English image prompt for Stable Diffusion XL."
+                                " Only output the refined English prompt."
                             )
                             response = groq_client.chat.completions.create(
                                 model="llama-3.3-70b-versatile",
@@ -1270,49 +1281,60 @@ with tab_img:
                                     {"role": "system", "content": magic_sys},
                                     {"role": "user", "content": raw_prompt},
                                 ],
-                                temperature=0.1,  # 降低隨機度，確保精準
-                                max_tokens=100,
+                                temperature=0.7,
+                                max_tokens=200,
                             )
                             final_prompt = response.choices[0].message.content.strip()
-                            st.info(f"🪄 **最終英文 Prompt**：`{final_prompt}`")
+                            st.info(f"🪄 **Groq 優化提示詞**：`{final_prompt}`")
                     except Exception as e:
-                        st.caption(f"翻譯跳過: {e}")
+                        st.caption(f"提示詞優化微幅跳過 ({e})")
 
-                full_prompt = f"{final_prompt}{style_prompts[style_option]}"
-                width, height = size_mapping[aspect_ratio]
+                # --- B. 風格詞補強 ---
+                final_prompt += style_prompts[style_option]
 
-                with st.spinner("🚀 FLUX 引擎繪畫中..."):
+                # --- C. 呼叫 Stable Diffusion XL 官方 API ---
+                with st.spinner("🚀 SDXL 大師正在繪製中 (需時約 15-30 秒)..."):
                     try:
-                        encoded_prompt = urllib.parse.quote(full_prompt)
-                        seed = random.randint(1, 999999)
+                        # 💡 關鍵修改：使用 InferenceClient 呼叫指定 SDXL 模型
+                        # 注意：請確保你的 Secrets 裡面有 HF_TOKEN 且它有使用 Inference API 的權限
+                        hf_token = st.secrets.get("HF_TOKEN")
+                        if not hf_token:
+                            st.error("❌ 找不到 HF_TOKEN！請確認 Streamlit Secrets 設定。")
+                            st.stop()
 
-                        # 使用安全的 pollinations 端點參數
-                        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&seed={seed}&model=flux&nologo=true&safe=true"
+                        client = InferenceClient(
+                            model="stabilityai/stable-diffusion-xl-base-1.0",
+                            token=hf_token.strip(),
+                        )
 
-                        response = requests.get(image_url, timeout=30)
+                        # 直接生成圖片 (SDK 會自動處理回傳的 Image)
+                        image_result = client.text_to_image(final_prompt)
 
-                        if response.status_code == 200:
-                            image_result = Image.open(BytesIO(response.content))
+                        # 紀錄使用次數
+                        users[st.session_state.user_email]["daily_usage"] = (
+                            users[st.session_state.user_email].get("daily_usage", 0) + 1
+                        )
+                        save_data(USERS_FILE, users)
 
-                            users[st.session_state.user_email]["daily_usage"] = (
-                                users[st.session_state.user_email].get("daily_usage", 0) + 1
-                            )
-                            save_data(USERS_FILE, users)
+                        # --- D. 顯示生成結果 ---
+                        st.success("🎉 SDXL 圖片生成完畢！")
+                        st.image(
+                            image_result,
+                            caption=f"優化後的英文提示詞: {final_prompt}",
+                            use_container_width=True,
+                        )
 
-                            st.success("🎉 精準繪圖完成！")
-                            st.image(image_result, caption=f"Prompt: {full_prompt}", use_container_width=True)
-
-                            buf = BytesIO()
-                            image_result.save(buf, format="PNG")
-                            st.download_button(
-                                label="📥 下載高清原圖 (PNG)",
-                                data=buf.getvalue(),
-                                file_name=f"ai_flux_{seed}.png",
-                                mime="image/png",
-                                use_container_width=True,
-                            )
-                        else:
-                            st.error(f"❌ 生成失敗，狀態碼：{response.status_code}")
+                        # 下載按鈕
+                        buf = BytesIO()
+                        image_result.save(buf, format="PNG")
+                        st.download_button(
+                            label="📥 下載高清原圖 (PNG)",
+                            data=buf.getvalue(),
+                            file_name=f"ai_sdxl_{random.randint(1, 99999)}.png",
+                            mime="image/png",
+                            use_container_width=True,
+                            key="dl_img_btn",
+                        )
 
                     except Exception as e:
-                        st.error(f"❌ 繪圖連線失敗：{e}")
+                        st.error(f"❌ 呼叫 SDXL API 失敗，詳細原因：{e}")
