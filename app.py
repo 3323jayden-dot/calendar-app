@@ -1178,85 +1178,104 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # ==============================================================================
 # 6.ai圖片生成
 # ==============================================================================
-with tab_img:
-    st.header("🎨 AI 頂級繪圖工房 (專屬 GPU 連線版)")
-    st.caption("連線至你的 Colab 免費 GPU 後端，100% 精準生成、絕不偷換模型亂畫！")
+import streamlit as st
+import requests
+from io import BytesIO
+from PIL import Image
+import urllib.parse
+import random
 
-    # API 網址設定區
-    api_url = st.text_input(
-        "🔗 後端 API 網址",
-        value="https://demotion-crisped-pesticide.ngrok-free.dev",
-        help="請確認 Colab 程式正在執行中",
-        key="colab_api_url_input"
-    )
+with tab_img:
+    st.header("🎨 AI 頂級繪圖工房 (FLUX 極速免費版)")
+    st.caption("內建 Groq 精確翻譯 + FLUX 繪圖引擎，100% 免費、免架伺服器、絕不畫出廢墟！")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
     with col_left:
         raw_prompt = st.text_area(
-            "✍️ 輸入你想畫的畫面 (支援中文或英文)",
-            placeholder="例如：一隻戴著太陽眼鏡的柴犬在夏威夷海灘喝椰子水，日光充足，高清寫實",
+            "✍️ 輸入你想畫的畫面 (支援中文)",
+            placeholder="例如：一隻戴著太陽眼鏡的柴犬在夏威夷海灘喝椰子水，寫實高畫質",
             height=120,
-            key="colab_raw_prompt",
+            key="poll_raw_prompt",
         )
 
     with col_right:
-        # Style 選項可視需要加入提示詞增強
         style_option = st.selectbox(
-            "🎭 選擇風格補強",
-            ["預設原汁原味", "高清寫實 (Photorealistic)", "動漫風格 (Anime)", "賽博朋克 (Cyberpunk)"],
+            "🎭 選擇風格",
+            ["高清寫實 (Photorealistic)", "日系動漫 (Anime)", "賽博朋克 (Cyberpunk)", "3D 雕塑 (3D Render)", "無風格"],
             index=0,
-            key="colab_style_select",
+            key="poll_style_select",
         )
 
     style_suffix = {
-        "預設原汁原味": "",
-        "高清寫實 (Photorealistic)": ", photorealistic, 8k resolution, highly detailed, realistic light",
-        "動漫風格 (Anime)": ", anime style, vibrant colors, detailed illustration",
-        "賽博朋克 (Cyberpunk)": ", cyberpunk style, neon lights, futuristic background",
+        "高清寫實 (Photorealistic)": ", photorealistic, 8k resolution, cinematic lighting, highly detailed",
+        "日系動漫 (Anime)": ", anime style, vibrant colors, masterpiece, highly detailed",
+        "賽博朋克 (Cyberpunk)": ", cyberpunk style, neon lights, futuristic city background",
+        "3D 雕塑 (3D Render)": ", cute 3D render, Pop Mart style, smooth lighting",
+        "無風格": "",
     }
 
-    generate_btn = st.button("🚀 立即生成圖片", type="primary", use_container_width=True)
+    generate_btn = st.button("🚀 立即生成圖片", type="primary", use_container_width=True, key="gen_poll_btn")
 
     if generate_btn:
-        if not api_url.strip():
-            st.error("❌ 請輸入後端 API 網址！")
-        elif not raw_prompt.strip():
-            st.warning("⚠️ 請輸入想要生成的描述內容！")
+        if not raw_prompt.strip():
+            st.warning("⚠️ 請輸入畫面描述！")
         else:
-            final_prompt = f"{raw_prompt.strip()}{style_suffix[style_option]}"
-            
-            # 清理網址末端斜線
-            target_url = api_url.strip().rstrip("/") + "/generate"
+            final_english_prompt = raw_prompt.strip()
 
-            with st.spinner("🚀 Google GPU 繪製中 (約 3~5 秒)..."):
+            # 1. 強制用 Groq 將中文翻譯成精準英文 (確保繪圖模型聽得懂)
+            groq_client = (
+                globals().get("client")
+                or globals().get("groq_client")
+                or st.session_state.get("groq_client")
+            )
+
+            if groq_client:
                 try:
-                    # 呼叫你的 Colab 後端
-                    response = requests.post(
-                        target_url,
-                        json={"prompt": final_prompt},
-                        headers={"ngrok-skip-browser-warning": "true"}, # 繞過 ngrok 警告頁面
-                        timeout=60
-                    )
+                    with st.spinner("🪄 正在將提示詞精確翻譯為英文..."):
+                        response = groq_client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": "Translate the user's input into a detailed, clear English text prompt for image generation. Output ONLY the English translation.",
+                                },
+                                {"role": "user", "content": raw_prompt},
+                            ],
+                            temperature=0.2,
+                        )
+                        final_english_prompt = response.choices[0].message.content.strip()
+                        st.info(f"🔤 **AI 翻譯 Prompt**：`{final_english_prompt}`")
+                except Exception as e:
+                    st.caption(f"翻譯跳過: {e}")
 
-                    if response.status_code == 200:
-                        image_result = Image.open(BytesIO(response.content))
+            # 2. 加上風格後綴與隨機 Seed (防止快取舊圖)
+            full_prompt = f"{final_english_prompt}{style_suffix[style_option]}"
+            encoded_prompt = urllib.parse.quote(full_prompt)
+            seed = random.randint(1, 999999)
+
+            # 3. 呼叫 FLUX 引擎 API (Pollinations 免費開放接口)
+            img_url = f"https://pollinations.ai/p/{encoded_prompt}?model=flux&seed={seed}&width=1024&height=1024&nologo=true"
+
+            with st.spinner("🚀 FLUX 引擎高畫質繪製中 (約 5~8 秒)..."):
+                try:
+                    res = requests.get(img_url, timeout=30)
+                    if res.status_code == 200:
+                        image_result = Image.open(BytesIO(res.content))
                         
-                        st.success("🎉 生成成功！100% 精確符合指令！")
-                        st.image(image_result, caption=f"提示詞: {final_prompt}", use_container_width=True)
+                        st.success("🎉 生成成功！")
+                        st.image(image_result, caption=f"Prompt: {full_prompt}", use_container_width=True)
 
-                        # 下載按鈕
                         buf = BytesIO()
                         image_result.save(buf, format="PNG")
                         st.download_button(
                             label="📥 下載高清原圖 (PNG)",
                             data=buf.getvalue(),
-                            file_name="gpu_generated.png",
+                            file_name=f"flux_{seed}.png",
                             mime="image/png",
                             use_container_width=True,
                         )
                     else:
-                        st.error(f"❌ 後端回應異常 (HTTP {response.status_code})，請檢查 Colab 程式狀態。")
-
+                        st.error("❌ 生成失敗，請稍後重試。")
                 except Exception as e:
-                    st.error(f"❌ 無法連線至後端：{e}\n請確認 Colab 頁面是否持續運作中。")
+                    st.error(f"❌ 連線失敗：{e}")
