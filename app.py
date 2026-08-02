@@ -239,7 +239,51 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 import streamlit.components.v1 as components
+# ------------------------------------------------------------------------------
+# TAB 0: 🤖 Groq AI 智囊團
+# ------------------------------------------------------------------------------
+with tab_ai:
+    st.header("🤖 Groq 極速 AI 助手")
+    st.caption("基於 Llama 3.3 超高速度語言模型，提供即時問答、行程規劃與文字創作服務。")
 
+    # 檢查 API Key
+    if "GROQ_API_KEY" not in st.secrets:
+        st.error("⚠️ 未在 Streamlit Secrets 中設定 GROQ_API_KEY，請至 Streamlit Cloud 設定。")
+    else:
+        # 功能選擇與輸入
+        ai_mode = st.radio("選擇模式：", ["💬 自由對話", "🗓️ 行程規劃", "✍️ 文章修飾"], horizontal=True)
+        user_input = st.text_area("請輸入您的提示詞：", placeholder="例如：幫我規劃花蓮 2 天 1 夜行程...", height=120)
+
+        if st.button("🚀 讓 AI 立即生成", use_container_width=True):
+            if user_input.strip():
+                with st.spinner("⚡ Groq AI 思考中..."):
+                    try:
+                        from groq import Groq
+                        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+                        
+                        prompts = {
+                            "💬 自由對話": "你是一個親切且專業的繁體中文 AI 助手。",
+                            "🗓️ 行程規劃": "你是一個專業旅遊規劃師，請輸出帶有時間與景點建議的繁體中文行程表格。",
+                            "✍️ 文章修飾": "你是一個專業文案編輯，請優化文采與流暢度。"
+                        }
+
+                        completion = client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[
+                                {"role": "system", "content": prompts[ai_mode]},
+                                {"role": "user", "content": user_input.strip()}
+                            ],
+                            temperature=0.7,
+                        )
+
+                        st.success("✅ 生成完成！")
+                        st.markdown("### 💡 AI 回覆：")
+                        st.write(completion.choices[0].message.content)
+
+                    except Exception as e:
+                        st.error(f"❌ 發生錯誤：{e}")
+            else:
+                st.warning("請先輸入內容喔！")
 # ------------------------------------------------------------------------------
 # TAB 1: 📅 視覺化日曆網格（7 欄完美不跑版 + 支援直接點擊日期彈窗）
 # ------------------------------------------------------------------------------
