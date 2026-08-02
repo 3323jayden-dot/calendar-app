@@ -741,3 +741,16 @@ with tab_ig:
     ig_img_file = st.file_uploader(
         "上傳圖片", type=["jpg", "jpeg", "png"], key="ig_file"
     )
+# ==============================================================================
+# 5. 頁尾客服資訊 (小字顯示)
+# ==============================================================================
+st.divider()
+footer_html = """
+<div style="text-align: center; color: #888888; font-size: 12px; margin-top: 20px; line-height: 1.6;">
+    <p style="margin: 0;">💬 <b>客服與技術支援</b></p>
+    <p style="margin: 2px 0;">服務時間：週一至週五 09:00 - 18:00</p>
+    <p style="margin: 2px 0;">客服信箱：<a href="mailto:support@example.com" style="color: #007aff;">3323jayden@gmail.com</a> </p>
+    <p style="margin: 6px 0 0 0; font-size: 10px; color: #aaa;">© 2026 共享線上行事曆與數位助理系統 All Rights Reserved.</p>
+</div>
+"""
+st.markdown(footer_html, unsafe_allow_html=True)
