@@ -321,7 +321,7 @@ with tab_cal:
         active_events = [e for e in events if e.get("cal_code") == current_cal_code]
 
     # --- 3. 年月選擇 ---
-    c_y, c_m, _ = st.columns([1, 1, 2])
+    c_y, c_m, _ = st.columns([1, 2, 2])
     with c_y:
         sel_year = st.number_input("選擇年份", min_value=2020, max_value=2030, value=today.year)
     with c_m:
