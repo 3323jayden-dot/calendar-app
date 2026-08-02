@@ -921,10 +921,11 @@ with tab_cal:
 
     # 5. 操作互動區（選擇日期編輯或新增）
     st.markdown("#### 📝 行程點擊與管理")
-    all_month_days = [f"{sel_year}-{sel_month:02d}-{d:02d}" for w in month_days for d in w if d != 0]
-    col_sel_d, col_btn_d = st.columns([3, 1])
-    with col_sel_d:
-        target_date = st.selectbox("請選擇要查看 / 管理的日期：", all_month_days)
+   # 取得選定月份的所有日期
+all_month_days = [f"{sel_year}-{sel_month:02d}-{d:02d}" for w in month_days for d in w if d != 0]
+
+# 提供下拉選單讓使用者挑選日期
+target_date = st.selectbox("請選擇要查看 / 管理的日期：", all_month_days)
     with col_btn_d:
         st.write("")
         st.write("")
