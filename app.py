@@ -1211,7 +1211,7 @@ with tab_img:
             key="img_style_select",
         )
 
-        # 3. 畫面比例選擇 (自動換算為相容 1024 的最佳解析度)
+        # 3. 畫面比例選擇
         aspect_ratio = st.selectbox(
             "📐 圖片比例",
             [
@@ -1283,12 +1283,26 @@ with tab_img:
 
                     final_prompt = raw_prompt.strip()
 
-                    # 💡 魔法 1：若勾選魔法優化，用 Groq LLM 將中文轉為 Midjourney 級英文 Prompt
-                    if use_magic_prompt and client:
+                    # 💡 判斷並取得你的 Groq client 變數 (防範 NameError)
+                    groq_client = (
+                        globals().get("client")
+                        or globals().get("groq_client")
+                        or st.session_state.get("groq_client")
+                    )
+
+                    # 💡 魔法 1：若勾選魔法優化且 client 存在，呼叫 Groq LLM 優化 Prompt
+                    if use_magic_prompt and groq_client:
                         try:
                             with st.spinner("🪄 Groq AI 正在構思藝術提示詞..."):
-                                magic_sys = "You are an expert AI Image Prompt Engineer. Convert the user's input into a highly detailed, vivid English text prompt optimized for FLUX.1 image generation. Output ONLY the refined English prompt, nothing else."
-                                response = client.chat.completions.create(
+                                magic_sys = (
+                                    "You are an expert AI Image Prompt Engineer."
+                                    " Convert the user's input into a highly"
+                                    " detailed, vivid English text prompt"
+                                    " optimized for FLUX.1 image generation."
+                                    " Output ONLY the refined English prompt,"
+                                    " nothing else."
+                                )
+                                response = groq_client.chat.completions.create(
                                     model="llama-3.3-70b-versatile",
                                     messages=[
                                         {
@@ -1307,7 +1321,9 @@ with tab_img:
                                     f"🪄 **Groq 魔法提示詞**：`{final_prompt}`"
                                 )
                         except Exception as e:
-                            st.caption(f"提示詞優化微幅跳過 ({e})，使用原提示詞生成")
+                            st.caption(
+                                f"提示詞優化微幅跳過 ({e})，使用原提示詞生成"
+                            )
 
                     # 疊加風格屬性
                     final_prompt += style_prompts[style_option]
@@ -1325,7 +1341,6 @@ with tab_img:
                             )
                         }
 
-                        # 請求網址 (強制以 1024 基準請求確保最大成功率)
                         image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={req_w}&height={req_h}&seed={seed}&model=flux&nologo=true&enhance=true"
 
                         image_result = None
@@ -1340,7 +1355,6 @@ with tab_img:
                             ):
                                 image_result = Image.open(BytesIO(res.content))
                         except Exception:
-                            # 備用保險線路
                             try:
                                 backup_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1024&seed={seed}&nologo=true"
                                 res_b = requests.get(
@@ -1355,7 +1369,6 @@ with tab_img:
                                 pass
 
                         if image_result:
-                            # 更新用量
                             users[st.session_state.user_email][
                                 "daily_usage"
                             ] = (
