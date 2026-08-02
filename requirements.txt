@@ -6,3 +6,4 @@ openpyxl
 streamlit-cookies-controller
 groq
 extra-streamlit-components
+requests
