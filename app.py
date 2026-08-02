@@ -453,7 +453,28 @@ with tab_ai:
     html_items = ['<div class="chat-scroll-container" id="chat-box">']
     if not st.session_state.messages:
         html_items.append(
-            f'<div class="welcome-box"><div class="welcome-title">{current_user_name}，盡情與 AI 規劃行程吧！</div><div class="welcome-sub">當前模式：【{ai_mode}】｜ 可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div></div>'
+# 1. 動態計算安全稱呼 (未登入或無資料時不報錯)
+if not st.session_state.get("logged_in") or not st.session_state.get(
+    "user_email"
+):
+    current_user_name = "朋友"
+else:
+    u_email = st.session_state.user_email
+    # 從你全域的 users 字典拿 (若你是用字典儲存)
+    user_info = users.get(u_email, {})
+    current_user_name = (
+        user_info.get("nickname")
+        or user_info.get("name")
+        or u_email.split("@")[0].capitalize()
+    )
+
+# 2. 替換原本的 HTML append 段落
+html_items.append(
+    f'<div class="welcome-box">'
+    f'<div class="welcome-title">{current_user_name}，盡情與 AI 規劃行程吧！</div>'
+    f'<div class="welcome-sub">當前模式：【{ai_mode}】｜ 可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div>'
+    f"</div>"
+)
         )
     else:
         for msg in st.session_state.messages:
