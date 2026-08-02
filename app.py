@@ -926,7 +926,7 @@ all_month_days = [f"{sel_year}-{sel_month:02d}-{d:02d}" for w in month_days for 
 
 # 提供下拉選單讓使用者挑選日期
 target_date = st.selectbox("請選擇要查看 / 管理的日期：", all_month_days)
-    with col_btn_d:
+with col_btn_d:
         st.write("")
         st.write("")
         if st.button("🔍 開啟日期詳情", use_container_width=True, type="primary"):
