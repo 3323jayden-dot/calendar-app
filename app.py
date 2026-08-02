@@ -454,13 +454,13 @@ with tab_ai:
     if not st.session_state.messages:
         html_items.append(
 # 1. 動態計算安全稱呼 (未登入或無資料時不報錯)
+# 1. 先計算出安全的名字（未登入預設顯示 "朋友"）
 if not st.session_state.get("logged_in") or not st.session_state.get(
     "user_email"
 ):
     current_user_name = "朋友"
 else:
     u_email = st.session_state.user_email
-    # 從你全域的 users 字典拿 (若你是用字典儲存)
     user_info = users.get(u_email, {})
     current_user_name = (
         user_info.get("nickname")
@@ -468,27 +468,17 @@ else:
         or u_email.split("@")[0].capitalize()
     )
 
-# 2. 替換原本的 HTML append 段落
-html_items.append(
-    f'<div class="welcome-box">'
-    f'<div class="welcome-title">{current_user_name}，盡情與 AI 規劃行程吧！</div>'
-    f'<div class="welcome-sub">當前模式：【{ai_mode}】｜ 可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div>'
-    f"</div>"
-)
-        )
-    else:
-        for msg in st.session_state.messages:
-            content = msg["content"].replace("\n", "<br>")
-            if msg["role"] == "user":
-                html_items.append(
-                    f'<div class="user-bubble-container"><div class="user-bubble">{content}</div></div>'
-                )
-            else:
-                html_items.append(
-                    f'<div class="ai-bubble-container"><div class="ai-bubble">{content}</div></div>'
-                )
-    html_items.append("</div>")
-    st.markdown("".join(html_items), unsafe_allow_html=True)
+# 2. 渲染 HTML 容器
+html_items = ['<div class="chat-scroll-container" id="chat-box">']
+
+if not st.session_state.messages:
+    # 確保字串用 f'...' 包裹，且結尾的 ) 有關閉！
+    html_items.append(
+        f'<div class="welcome-box">'
+        f'<div class="welcome-title">{current_user_name}，盡情與 AI 規劃行程吧！</div>'
+        f'<div class="welcome-sub">當前模式：【{ai_mode}】｜ 可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div>'
+        f"</div>"
+    )
 
     # 7. 接收使用者輸入與 API 呼叫處理
     if prompt := st.chat_input("輸入問題或請 AI 幫你規劃行程..."):
