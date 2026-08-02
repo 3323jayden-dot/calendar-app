@@ -1174,9 +1174,6 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # ==============================================================================
 # 6.ai圖片生成
 # ==============================================================================
-# 假設你的 tabs 加上了圖片生成，例如：
-# tab0, tab1, tab2, tab3, tab4, tab5, tab_img = st.tabs([" Groq AI", "📅 行事曆", ..., "🎨 AI 圖片生成"])
-
 with tab_img:
     st.header("🎨 AI 智慧圖片生成器")
     st.caption("輸入提示詞（Prompt），讓 AI 為你繪製精美圖像！")
@@ -1187,27 +1184,38 @@ with tab_img:
         prompt = st.text_area(
             "請輸入提示詞 (建議使用英文描述，效果最佳)",
             placeholder="A futuristic cyberpunk city with neon lights, highly detailed, 8k resolution",
-            height=120,
+            height=130,
+            key="img_prompt_input",
         )
 
     with col_config:
-        img_width = st.selectbox("圖片寬度", [512, 768, 1024], index=2)
-        img_height = st.selectbox("圖片高度", [512, 768, 1024], index=2)
+        img_width = st.selectbox(
+            "圖片寬度", [512, 768, 1024], index=2, key="img_w"
+        )
+        img_height = st.selectbox(
+            "圖片高度", [512, 768, 1024], index=2, key="img_h"
+        )
         model_type = st.selectbox(
             "風格模型",
             ["flux", "turbo"],
             format_func=lambda x: (
-                "FLUX.1 (高品質/細緻)" if x == "flux" else "SD Turbo (快速生成)"
+                "FLUX.1 (高品質/細緻)" if x == "flux" else "SD Turbo (快速)"
             ),
+            key="img_model",
         )
 
-    generate_btn = st.button("🚀 開始生成圖片", use_container_width=True, type="primary")
+    generate_btn = st.button(
+        "🚀 開始生成圖片",
+        use_container_width=True,
+        type="primary",
+        key="gen_img_btn",
+    )
 
     if generate_btn:
         if not prompt.strip():
-            st.warning("請先輸入圖像提示詞！")
+            st.warning("⚠️ 請先輸入圖像提示詞！")
         else:
-            # 扣除/檢查 AI 用量
+            # 檢查/更新用量
             allowed, msg, usage, limit = check_and_update_usage(
                 st.session_state.user_email
             )
@@ -1215,26 +1223,44 @@ with tab_img:
             if not allowed:
                 st.error(msg)
             else:
-                with st.spinner("🎨 AI 正在為你繪製圖片中，請稍候..."):
+                with st.spinner("🎨 AI 正在繪製圖片中，請稍候..."):
+                    import random
                     import urllib.parse
+                    from io import BytesIO
                     import requests
                     from PIL import Image
-                    from io import BytesIO
 
                     try:
-                        # 對提示詞進行 URL 編碼
-                        encoded_prompt = urllib.parse.quote(prompt)
+                        seed = random.randint(1, 999999)
+                        encoded_prompt = urllib.parse.quote(prompt.strip())
 
-                        # 呼叫免費圖片生成 API
-                        image_url = f"https://pollinations.ai/p/{encoded_prompt}?width={img_width}&height={img_height}&seed={st.session_state.get('img_seed', 42)}&model={model_type}&nologo=true"
+                        # 💡 關鍵修正：加入瀏覽器 User-Agent 避免被 API 伺服器阻擋
+                        headers = {
+                            "User-Agent": (
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                                " AppleWebKit/537.36 (KHTML, like Gecko)"
+                                " Chrome/120.0.0.0 Safari/537.36"
+                            )
+                        }
 
-                        response = requests.get(image_url, timeout=30)
+                        # API 網址
+                        image_url = f"https://pollinations.ai/p/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&model={model_type}&nologo=true"
 
-                        if response.status_code == 200:
-                            image = Image.open(BytesIO(response.content))
+                        res = requests.get(
+                            image_url, headers=headers, timeout=45
+                        )
 
-                            # 更新使用者每日用量
-                            users[st.session_state.user_email]["daily_usage"] = (
+                        # 驗證回傳的內容是否真的為圖片 (Image)
+                        if (
+                            res.status_code == 200
+                            and "image" in res.headers.get("Content-Type", "")
+                        ):
+                            image = Image.open(BytesIO(res.content))
+
+                            # 紀錄用量
+                            users[st.session_state.user_email][
+                                "daily_usage"
+                            ] = (
                                 users[st.session_state.user_email].get(
                                     "daily_usage", 0
                                 )
@@ -1249,20 +1275,60 @@ with tab_img:
                                 use_container_width=True,
                             )
 
-                            # 提供下載按鈕
                             buf = BytesIO()
                             image.save(buf, format="PNG")
                             byte_im = buf.getvalue()
 
                             st.download_button(
-                                label="📥 下載高清圖片 (PNG)",
+                                label="📥 下載高清原圖 (PNG)",
                                 data=byte_im,
-                                file_name="ai_generated_image.png",
+                                file_name=f"ai_image_{seed}.png",
                                 mime="image/png",
                                 use_container_width=True,
+                                key="dl_img_btn",
                             )
                         else:
-                            st.error("圖片生成失敗，請稍後再試！")
+                            # 備用線路：若主 API 忙碌，切換至閃電模式
+                            backup_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={img_width}&height={img_height}&seed={seed}&nologo=true"
+                            res_backup = requests.get(
+                                backup_url, headers=headers, timeout=45
+                            )
+
+                            if res_backup.status_code == 200:
+                                image = Image.open(BytesIO(res_backup.content))
+
+                                users[st.session_state.user_email][
+                                    "daily_usage"
+                                ] = (
+                                    users[st.session_state.user_email].get(
+                                        "daily_usage", 0
+                                    )
+                                    + 1
+                                )
+                                save_data(USERS_FILE, users)
+
+                                st.success("✨ 圖片生成成功 (備用線路)！")
+                                st.image(
+                                    image,
+                                    caption=f"提示詞: {prompt}",
+                                    use_container_width=True,
+                                )
+
+                                buf = BytesIO()
+                                image.save(buf, format="PNG")
+                                st.download_button(
+                                    label="📥 下載高清原圖 (PNG)",
+                                    data=buf.getvalue(),
+                                    file_name=f"ai_image_{seed}.png",
+                                    mime="image/png",
+                                    use_container_width=True,
+                                    key="dl_img_btn_backup",
+                                )
+                            else:
+                                st.error(
+                                    "❌ 繪圖伺服器目前較擁擠，請稍等 10"
+                                    " 秒後重新點擊生成！"
+                                )
 
                     except Exception as e:
-                        st.error(f"連線失敗或發生錯誤：{e}")
+                        st.error(f"❌ 生成失敗：{e}")
