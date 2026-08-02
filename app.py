@@ -1178,15 +1178,8 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # ==============================================================================
 # 6.ai圖片生成
 # ==============================================================================
-import streamlit as st
-import requests
-from io import BytesIO
-from PIL import Image
-import urllib.parse
-import random
-
 with tab_img:
-    st.header("🎨 AI 頂級繪圖工房 (FLUX 極速免費版)")
+    st.header("🎨 AI 頂級繪圖工房 (FLUX 極速穩定版)")
     st.caption("內建 Groq 精確翻譯 + FLUX 繪圖引擎，100% 免費、免架伺服器、絕不畫出廢墟！")
 
     col_left, col_right = st.columns([1.8, 1.2])
@@ -1221,9 +1214,15 @@ with tab_img:
         if not raw_prompt.strip():
             st.warning("⚠️ 請輸入畫面描述！")
         else:
+            import random
+            import urllib.parse
+            from io import BytesIO
+            import requests
+            from PIL import Image
+
             final_english_prompt = raw_prompt.strip()
 
-            # 1. 強制用 Groq 將中文翻譯成精準英文 (確保繪圖模型聽得懂)
+            # 1. 用 Groq 將中文翻譯成精準英文
             groq_client = (
                 globals().get("client")
                 or globals().get("groq_client")
@@ -1249,18 +1248,26 @@ with tab_img:
                 except Exception as e:
                     st.caption(f"翻譯跳過: {e}")
 
-            # 2. 加上風格後綴與隨機 Seed (防止快取舊圖)
+            # 2. 組合提示詞
             full_prompt = f"{final_english_prompt}{style_suffix[style_option]}"
             encoded_prompt = urllib.parse.quote(full_prompt)
             seed = random.randint(1, 999999)
 
-            # 3. 呼叫 FLUX 引擎 API (Pollinations 免費開放接口)
+            # 3. 呼叫 FLUX 引擎 API (加上標頭與模型切換機制)
             img_url = f"https://pollinations.ai/p/{encoded_prompt}?model=flux&seed={seed}&width=1024&height=1024&nologo=true"
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
 
             with st.spinner("🚀 FLUX 引擎高畫質繪製中 (約 5~8 秒)..."):
                 try:
-                    res = requests.get(img_url, timeout=30)
-                    if res.status_code == 200:
+                    res = requests.get(img_url, headers=headers, timeout=30)
+                    
+                    # 檢查 Content-Type 是否為真正的圖片
+                    content_type = res.headers.get("Content-Type", "")
+                    
+                    if res.status_code == 200 and "image" in content_type:
                         image_result = Image.open(BytesIO(res.content))
                         
                         st.success("🎉 生成成功！")
@@ -1276,6 +1283,17 @@ with tab_img:
                             use_container_width=True,
                         )
                     else:
-                        st.error("❌ 生成失敗，請稍後重試。")
+                        # 如果 FLUX 忙碌，自動降級到 Turbo 備用模型
+                        st.warning("⚠️ 預設通道忙碌中，正在自動切換備用繪圖引擎...")
+                        backup_url = f"https://pollinations.ai/p/{encoded_prompt}?model=turbo&seed={seed}&width=1024&height=1024&nologo=true"
+                        res_backup = requests.get(backup_url, headers=headers, timeout=30)
+                        
+                        if res_backup.status_code == 200 and "image" in res_backup.headers.get("Content-Type", ""):
+                            image_result = Image.open(BytesIO(res_backup.content))
+                            st.success("🎉 備用引擎生成成功！")
+                            st.image(image_result, caption=f"Prompt: {full_prompt}", use_container_width=True)
+                        else:
+                            st.error("❌ 免費通道目前流量較大，請再點一次「立即生成圖片」重試！")
+
                 except Exception as e:
-                    st.error(f"❌ 連線失敗：{e}")
+                    st.error(f"❌ 連線異常：{e}")
