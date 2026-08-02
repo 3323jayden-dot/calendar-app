@@ -1175,8 +1175,8 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # 6.ai圖片生成
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖工房 (Pollinations 極速精準版)")
-    st.caption("支援中文描述！採用高效能繪圖引擎，零降級、零亂畫，精準呈現畫面。")
+    st.header("🎨 AI 頂級繪圖與靈感工房 (FLUX.1 精確版)")
+    st.caption("支援中文描述！呼叫原生 FLUX.1 極速引擎，生成大師質感圖像。已優化提示詞邏輯與語法！")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
@@ -1192,7 +1192,7 @@ with tab_img:
         col_btn1, col_btn2 = st.columns([1, 1])
         with col_btn1:
             use_magic_prompt = st.checkbox(
-                "✨ 開啟 Groq 精確翻譯大師 (自動轉英文)", value=True, key="img_use_magic"
+                "✨ 開啟 Groq 精確翻譯大師 (只翻譯不亂加細節)", value=True, key="img_use_magic"
             )
 
     with col_right:
@@ -1232,11 +1232,11 @@ with tab_img:
     req_w, req_h = ratio_map[aspect_ratio]
 
     style_prompts = {
-        "自然寫實 (Cinematic Realism)": ", 8k resolution, cinematic lighting, photorealistic, highly detailed, professional photography, masterpiece",
-        "日系動漫 (Anime Style)": ", anime style, vibrant colors, detailed illustration, masterpiece, clean lines",
-        "賽博朋克 (Cyberpunk Neon)": ", cyberpunk style, glowing neon lights, futuristic city background, atmospheric lighting, highly detailed",
-        "3D 盲盒雕塑 (3D Cute Render)": ", cute 3D render, Pop Mart style, smooth lighting, pastel colors, clay texture",
-        "奇幻水彩 (Fantasy Watercolor)": ", fantasy watercolor painting, soft brush strokes, dreamy color palette",
+        "自然寫實 (Cinematic Realism)": ", 8k resolution, cinematic lighting, photorealistic, highly detailed, professional photography, masterwork",
+        "日系動漫 (Anime Style)": ", anime style, vibrant colors, detailed illustration, masterpiece, clean lines, Makoto Shinkai style",
+        "賽博朋克 (Cyberpunk Neon)": ", cyberpunk style, glowing neon lights, futuristic city background, atmospheric lighting, highly detailed, atmospheric",
+        "3D 盲盒雕塑 (3D Cute Render)": ", cute 3D render, Pop Mart style, smooth lighting, pastel colors, clay texture, Pop Mart style blind box",
+        "奇幻水彩 (Fantasy Watercolor)": ", fantasy watercolor painting, soft brush strokes, dreamy color palette, artistic composition, incredible details",
         "無風格 (依提示詞自訂)": "",
     }
 
@@ -1251,64 +1251,74 @@ with tab_img:
         if not raw_prompt.strip():
             st.warning("⚠️ 請先輸入畫面描述內容！")
         else:
-            allowed, msg, usage, limit = check_and_update_usage(
-                st.session_state.user_email
-            )
+            # 💡 從 Secrets 自動讀取 Token
+            hf_token = st.secrets.get("HF_TOKEN", globals().get("HF_TOKEN", ""))
 
-            if not allowed:
-                st.error(msg)
+            if not hf_token:
+                st.error("❌ 系統找不到 HF_TOKEN！請確認 Streamlit Secrets 中已設定 `HF_TOKEN`。")
             else:
-                import random
-                import urllib.parse
-                from io import BytesIO
-                import requests
-                from PIL import Image
-
-                final_user_content = raw_prompt.strip()
-
-                # Groq 提示詞翻譯
-                groq_client = (
-                    globals().get("client")
-                    or globals().get("groq_client")
-                    or st.session_state.get("groq_client")
+                allowed, msg, usage, limit = check_and_update_usage(
+                    st.session_state.user_email
                 )
 
-                if use_magic_prompt and groq_client:
-                    try:
-                        with st.spinner("🪄 Groq AI 正在進行精準翻譯..."):
-                            magic_sys = (
-                                "You are an expert AI Image Prompt Translator. "
-                                "Translate the user input into a clear, direct English text prompt for image generation. "
-                                "Output ONLY the English prompt."
+                if not allowed:
+                    st.error(msg)
+                else:
+                    import random
+                    from io import BytesIO
+                    from huggingface_hub import InferenceClient
+
+                    final_user_content = raw_prompt.strip()
+
+                    # Groq 提示詞優化邏輯 (只翻譯，不亂加細節)
+                    groq_client = (
+                        globals().get("client")
+                        or globals().get("groq_client")
+                        or st.session_state.get("groq_client")
+                    )
+
+                    if use_magic_prompt and groq_client:
+                        try:
+                            with st.spinner("🪄 Groq AI 正在構思藝術提示詞 (精確翻譯不加戲版)..."):
+                                magic_sys = (
+                                    "You are an expert AI Image Prompt Translator. "
+                                    "Your sole task is to accurately translate the user's input from Chinese into a concise, vivid English text prompt. "
+                                    "Keep the translated English as close to the original user description as possible. "
+                                    "DO NOT add any extra details, stylistic interpretations, backgrounds, or artistic elements that the user did not explicitly mention. "
+                                    "If the user did not specify a style, DO NOT add one. "
+                                    "DO NOT focus on things like ancient art, hair buns, construction cranes, or any other elements unless mentioned by the user. "
+                                    "Provide ONLY the English translation, nothing else."
+                                )
+                                response = groq_client.chat.completions.create(
+                                    model="llama-3.3-70b-versatile",
+                                    messages=[
+                                        {"role": "system", "content": magic_sys},
+                                        {"role": "user", "content": raw_prompt},
+                                    ],
+                                    temperature=0.3,
+                                    max_tokens=250,
+                                )
+                                final_user_content = response.choices[0].message.content.strip()
+                                st.info(f"🪄 **Groq 魔法提示詞**：`{final_user_content}`")
+                        except Exception as e:
+                            st.caption(f"提示詞優化微幅跳過 ({e})")
+
+                    full_final_prompt = f"{final_user_content}{style_prompts[style_option]}"
+
+                    with st.spinner("🚀 原生 FLUX.1 繪畫中 (需時約 10-20 秒)..."):
+                        try:
+                            # 初始化 InferenceClient
+                            client = InferenceClient(
+                                token=hf_token.strip(),
                             )
-                            response = groq_client.chat.completions.create(
-                                model="llama-3.3-70b-versatile",
-                                messages=[
-                                    {"role": "system", "content": magic_sys},
-                                    {"role": "user", "content": raw_prompt},
-                                ],
-                                temperature=0.3,
-                                max_tokens=200,
+
+                            # 💡 修正：移除包在內層的 parameters 字典，改直接傳入 height 與 width
+                            image_result = client.text_to_image(
+                                prompt=full_final_prompt,
+                                model="black-forest-labs/FLUX.1-schnell",
+                                height=req_h,
+                                width=req_w
                             )
-                            final_user_content = response.choices[0].message.content.strip()
-                            st.info(f"🪄 **Groq 翻譯提示詞**：`{final_user_content}`")
-                    except Exception as e:
-                        st.caption(f"提示詞翻譯微幅跳過 ({e})")
-
-                full_prompt = f"{final_user_content}{style_prompts[style_option]}"
-
-                with st.spinner("🚀 AI 繪畫生成中 (約 5-10 秒)..."):
-                    try:
-                        seed = random.randint(1, 999999)
-                        encoded_prompt = urllib.parse.quote(full_prompt)
-                        
-                        # 💡 改用 Pollinations 免費高速端點，穩定度 100%
-                        img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={req_w}&height={req_h}&seed={seed}&model=flux&nologo=true"
-
-                        res = requests.get(img_url, timeout=40)
-
-                        if res.status_code == 200:
-                            image_result = Image.open(BytesIO(res.content))
 
                             # 紀錄使用次數
                             users[st.session_state.user_email]["daily_usage"] = (
@@ -1316,10 +1326,10 @@ with tab_img:
                             )
                             save_data(USERS_FILE, users)
 
-                            st.success("🎉 圖片生成完畢！精準出圖！")
+                            st.success("🎉 圖片生成完畢！")
                             st.image(
                                 image_result,
-                                caption=f"最終提示詞: {full_prompt}",
+                                caption=f"最終優化提示詞: {full_final_prompt}",
                                 use_container_width=True,
                             )
 
@@ -1328,13 +1338,11 @@ with tab_img:
                             st.download_button(
                                 label="📥 下載高清原圖 (PNG)",
                                 data=buf.getvalue(),
-                                file_name=f"ai_gen_{seed}.png",
+                                file_name=f"ai_flux_gen_{random.randint(1, 999999)}.png",
                                 mime="image/png",
                                 use_container_width=True,
                                 key="dl_pro_img_btn",
                             )
-                        else:
-                            st.error(f"❌ 請求失敗 (Code {res.status_code})，請稍後重試。")
 
-                    except Exception as e:
-                        st.error(f"❌ 繪圖連線發生錯誤：{e}")
+                        except Exception as e:
+                            st.error(f"❌ 繪圖失敗，請稍候再試。詳細原因：{e}")
