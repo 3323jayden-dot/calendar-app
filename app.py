@@ -237,36 +237,211 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 行程智囊團
+# TAB 0: 🤖 Groq AI 行程智囊團 (支援模式選擇 + 歷史紀錄儲存與刪除)
 # ------------------------------------------------------------------------------
 with tab_ai:
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    import sqlite3
 
+    # 1. 初始化資料庫結構
+    def init_ai_db():
+        conn = sqlite3.connect("chat_history.db")
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_email TEXT,
+                title TEXT,
+                mode TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                role TEXT,
+                content TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions (session_id) ON DELETE CASCADE
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+    init_ai_db()
+
+    # DB 操作輔助函式
+    def get_user_sessions(email):
+        conn = sqlite3.connect("chat_history.db")
+        c = conn.cursor()
+        c.execute(
+            "SELECT session_id, title, mode FROM sessions WHERE user_email = ? ORDER BY session_id DESC",
+            (email,),
+        )
+        rows = c.fetchall()
+        conn.close()
+        return rows
+
+    def create_session(email, mode):
+        conn = sqlite3.connect("chat_history.db")
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO sessions (user_email, title, mode) VALUES (?, ?, ?)",
+            (email, "新對話", mode),
+        )
+        s_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        return s_id
+
+    def save_msg(session_id, role, content):
+        conn = sqlite3.connect("chat_history.db")
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
+            (session_id, role, content),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_session_msgs(session_id):
+        conn = sqlite3.connect("chat_history.db")
+        c = conn.cursor()
+        c.execute(
+            "SELECT role, content FROM messages WHERE session_id = ? ORDER BY message_id ASC",
+            (session_id,),
+        )
+        rows = c.fetchall()
+        conn.close()
+        return [{"role": r[0], "content": r[1]} for r in rows]
+
+    def delete_session(session_id):
+        conn = sqlite3.connect("chat_history.db")
+        c = conn.cursor()
+        c.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        c.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+
+    def update_session_title(session_id, title):
+        conn = sqlite3.connect("chat_history.db")
+        c = conn.cursor()
+        c.execute(
+            "UPDATE sessions SET title = ? WHERE session_id = ?",
+            (title, session_id),
+        )
+        conn.commit()
+        conn.close()
+
+    # 2. 定義 AI 模式 Prompts
+    SYSTEM_PROMPTS = {
+        "📅 行程規劃專家": "你是一個親切且極其專業的繁體中文 AI 時間管理與行程規劃助手，擅長評估空閒時間與最佳化排程。",
+        "📝 文案/報告潤飾": "你是一位專業的文案與報告潤飾大師，請協助使用者修飾文字、調整口吻並提供結構建議。",
+        "💻 程式/自動化諮詢": "你是一位資深軟體工程師，請幫助使用者解答 Python、自動化流程與 API 相關問題。",
+        "💬 輕鬆閒聊": "你是一個親切友善的對話夥伴，用輕鬆幽默的方式回答使用者的日常生活問題。",
+    }
+
+    # 3. 自訂 CSS 樣式
     st.markdown(
         """
         <style>
-        .chat-scroll-container { max-width: 800px; margin: 0 auto; height: 480px; overflow-y: auto; padding: 10px 15px; border-radius: 12px; scroll-behavior: smooth; }
-        .welcome-box { text-align: center; padding: 60px 20px 20px 20px; }
-        .welcome-title { font-size: 32px; font-weight: 700; background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
-        .welcome-sub { color: #5f6368; font-size: 15px; }
+        .chat-scroll-container { max-width: 800px; margin: 0 auto; height: 420px; overflow-y: auto; padding: 10px 15px; border-radius: 12px; scroll-behavior: smooth; border: 1px solid #f0f0f0; background-color: #fafafa; }
+        .welcome-box { text-align: center; padding: 50px 20px 20px 20px; }
+        .welcome-title { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
+        .welcome-sub { color: #5f6368; font-size: 14px; }
         .user-bubble-container { display: flex; justify-content: flex-end; margin-bottom: 16px; }
-        .user-bubble { background-color: #f1f3f4; color: #202124; padding: 10px 18px; border-radius: 20px 20px 4px 20px; max-width: 75%; font-size: 15px; line-height: 1.5; }
+        .user-bubble { background-color: #e3f2fd; color: #1565c0; padding: 10px 18px; border-radius: 20px 20px 4px 20px; max-width: 75%; font-size: 15px; line-height: 1.5; }
         .ai-bubble-container { display: flex; justify-content: flex-start; margin-bottom: 24px; }
-        .ai-bubble { color: #1f1f1f; width: 100%; font-size: 15px; line-height: 1.6; }
+        .ai-bubble { background-color: #ffffff; border: 1px solid #e0e0e0; padding: 12px 18px; border-radius: 20px 20px 20px 4px; color: #1f1f1f; width: 100%; font-size: 15px; line-height: 1.6; }
         </style>
     """,
         unsafe_allow_html=True,
     )
 
+    current_email = st.session_state.get("user_email", "guest")
+
+    # 4. 功能列：選擇模式 + 歷史紀錄切換與刪除
+    col_m1, col_m2, col_m3 = st.columns([2, 2, 1])
+
+    with col_m1:
+        ai_mode = st.selectbox(
+            "🎯 AI 助手模式",
+            list(SYSTEM_PROMPTS.keys()),
+            key="ai_mode_select",
+        )
+
+    # 取得目前使用者的所有歷史對話
+    user_sessions = (
+        get_user_sessions(current_email)
+        if st.session_state.get("logged_in")
+        else []
+    )
+
+    # 管理 current_session_id
+    if "current_session_id" not in st.session_state or not any(
+        s[0] == st.session_state.current_session_id for s in user_sessions
+    ):
+        if user_sessions:
+            st.session_state.current_session_id = user_sessions[0][0]
+        else:
+            st.session_state.current_session_id = None
+
+    with col_m2:
+        session_options = {
+            s[0]: f"{s[1]} ({s[2][:4]})" for s in user_sessions
+        }
+        if session_options:
+            selected_s_id = st.selectbox(
+                "📜 歷史對話紀錄",
+                options=list(session_options.keys()),
+                format_func=lambda x: session_options[x],
+                index=0,
+            )
+            st.session_state.current_session_id = selected_s_id
+        else:
+            st.selectbox(
+                "📜 歷史對話紀錄",
+                options=["(尚無歷史紀錄)"],
+                disabled=True,
+            )
+
+    with col_m3:
+        st.write("")
+        st.write("")
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            if st.button("➕", help="開啟新對話", use_container_width=True):
+                if st.session_state.get("logged_in"):
+                    new_id = create_session(current_email, ai_mode)
+                    st.session_state.current_session_id = new_id
+                    st.rerun()
+                else:
+                    st.warning("請先登入")
+        with btn_col2:
+            if st.button(
+                "🗑️",
+                help="刪除此紀錄",
+                use_container_width=True,
+                disabled=not st.session_state.current_session_id,
+            ):
+                if st.session_state.current_session_id:
+                    delete_session(st.session_state.current_session_id)
+                    st.session_state.current_session_id = None
+                    st.rerun()
+
+    # 載入當前對話紀錄
+    if st.session_state.current_session_id:
+        st.session_state.messages = get_session_msgs(
+            st.session_state.current_session_id
+        )
+    else:
+        st.session_state.messages = []
+
+    # 5. 權限與行事曆整合選項
     col_c1, col_c2 = st.columns([4, 1])
     with col_c1:
-        is_pro = (
-            st.session_state.logged_in
-            and (
-                users.get(st.session_state.user_email, {}).get("role") == "pro"
-                or st.session_state.user_email == ADMIN_EMAIL
-            )
+        is_pro = st.session_state.get("logged_in", False) and (
+            users.get(st.session_state.user_email, {}).get("role") == "pro"
+            or st.session_state.user_email == ADMIN_EMAIL
         )
         include_cal_data = st.checkbox(
             "📅 允許 AI 存取我的行事曆（AI 將自動評估你的空閒時間並幫你規劃行程）",
@@ -274,16 +449,11 @@ with tab_ai:
             disabled=not is_pro,
         )
 
-    with col_c2:
-        if st.session_state.messages:
-            if st.button("➕ 新對話", use_container_width=True):
-                st.session_state.messages = []
-                st.rerun()
-
+    # 6. 渲染聊天視窗
     html_items = ['<div class="chat-scroll-container" id="chat-box">']
     if not st.session_state.messages:
         html_items.append(
-            '<div class="welcome-box"><div class="welcome-title">Jayden，盡情與 AI 規劃行程吧！</div><div class="welcome-sub">我可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div></div>'
+            f'<div class="welcome-box"><div class="welcome-title">Jayden，盡情與 AI 規劃行程吧！</div><div class="welcome-sub">當前模式：【{ai_mode}】｜ 可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div></div>'
         )
     else:
         for msg in st.session_state.messages:
@@ -299,6 +469,7 @@ with tab_ai:
     html_items.append("</div>")
     st.markdown("".join(html_items), unsafe_allow_html=True)
 
+    # 7. 接收使用者輸入與 API 呼叫處理
     if prompt := st.chat_input("輸入問題或請 AI 幫你規劃行程..."):
         if not st.session_state.logged_in:
             st.error("⚠️ 請先於左側邊欄「登入帳號」後再使用 AI 對話功能。")
@@ -312,15 +483,37 @@ with tab_ai:
                 "GROQ_API_KEY" not in st.secrets
                 or not st.secrets["GROQ_API_KEY"]
             ):
-                st.error("⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`。")
+                st.error(
+                    "⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`。"
+                )
             else:
                 users[st.session_state.user_email]["daily_usage"] += 1
                 save_data(USERS_FILE, users)
+
+                # 若尚未建立 Session 則自動建立
+                if not st.session_state.current_session_id:
+                    st.session_state.current_session_id = create_session(
+                        current_email, ai_mode
+                    )
+
+                # 儲存與寫入訊息
+                save_msg(st.session_state.current_session_id, "user", prompt)
                 st.session_state.messages.append(
                     {"role": "user", "content": prompt}
                 )
+
+                # 第一句話自動更新為此話頭
+                if len(st.session_state.messages) == 1:
+                    title_snippet = (
+                        prompt[:10] + "..." if len(prompt) > 10 else prompt
+                    )
+                    update_session_title(
+                        st.session_state.current_session_id, title_snippet
+                    )
+
                 st.rerun()
 
+    # 8. 呼叫 Groq API 生成回答
     if (
         st.session_state.messages
         and st.session_state.messages[-1]["role"] == "user"
@@ -328,9 +521,9 @@ with tab_ai:
         with st.spinner("🤖 AI 正在分析行程並思考中..."):
             try:
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                system_instruction = (
-                    "你是一個親切且極其專業的繁體中文 AI 時間管理與行程規劃助手。"
-                )
+
+                # 套用選定的模式 Prompt
+                system_instruction = SYSTEM_PROMPTS[ai_mode]
 
                 if include_cal_data and st.session_state.logged_in:
                     user_evs = get_user_all_events(st.session_state.user_email)
@@ -343,7 +536,9 @@ with tab_ai:
                     else:
                         system_instruction += f"\n\n目前使用者的行事曆上沒有任何行程。今天日期是：{date.today()}。"
 
-                api_messages = [{"role": "system", "content": system_instruction}] + [
+                api_messages = [
+                    {"role": "system", "content": system_instruction}
+                ] + [
                     {"role": m["role"], "content": m["content"]}
                     for m in st.session_state.messages
                 ]
@@ -356,13 +551,17 @@ with tab_ai:
                 )
 
                 ai_reply = response.choices[0].message.content
+
+                # 儲存回答至 DB 與 State
+                save_msg(
+                    st.session_state.current_session_id, "assistant", ai_reply
+                )
                 st.session_state.messages.append(
                     {"role": "assistant", "content": ai_reply}
                 )
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ 發生錯誤：{e}")
-
 # ------------------------------------------------------------------------------
 # TAB 1: 📅 絕不跑版！視覺化月曆與行程表 (st.dataframe 完美 7 欄卡片)
 # ------------------------------------------------------------------------------
