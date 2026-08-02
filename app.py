@@ -250,7 +250,7 @@ st.sidebar.divider()
 
 # ✨【側邊欄導覽選單】將原本主畫面的 Tab 移動至此
 st.sidebar.title("📌 功能導覽選單")
-selected_tab = st.sidebar.radio(
+selected_tab = st.sidebar.selectbox(
     "請選擇要使用的功能頁面：",
     [
         "💻 Groq AI 行程智囊團",
