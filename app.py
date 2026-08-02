@@ -903,13 +903,12 @@ with tab_cal:
 
     st.divider()
 
-   # --- 4. 操作互動區（修復無反應問題） ---
+# --- 4. 操作互動區（選擇日期與觸發） ---
     st.markdown("#### 📝 行程點擊與管理")
     
     col_sel_date, col_btn_action = st.columns([3, 1])
     
     with col_sel_date:
-        # 使用 date_input 並綁定 key
         selected_date_obj = st.date_input(
             "請選擇要查看 / 管理的日期：",
             value=today,
@@ -919,23 +918,21 @@ with tab_cal:
         )
         target_date = selected_date_obj.strftime("%Y-%m-%d")
 
-    # 取得選定日期的所有行程
-    target_events = [e for e in active_events if e.get("date") == target_date]
-
     with col_btn_action:
         st.write("")
         st.write("")
-        # 點擊按鈕時，將選取的日期寫入 session_state 並刷新頁面
-        if st.button("🔍 開啟日期詳情", use_container_width=True, type="primary"):
+        if st.button("🔍 查看 / 管理此日行程", use_container_width=True, type="primary"):
             st.session_state["selected_target_date"] = target_date
             st.rerun()
 
-    # --- 5. 展示選定日期的行程與管理視窗 ---
-    # 只要 session_state 有值或是當前選取的日期，就自動顯示行程詳情面板
+    # --- 5. 行程詳情清單 & ➕ 新增行程功能 ---
     current_view_date = st.session_state.get("selected_target_date", target_date)
     current_day_events = [e for e in active_events if e.get("date") == current_view_date]
 
-    with st.expander(f"📌 {current_view_date} 的行程詳情與管理", expanded=True):
+    with st.expander(f"📌 {current_view_date} 的行程與管理", expanded=True):
+        
+        # --- A. 檢視與刪除現有行程 ---
+        st.markdown("##### 📋 當日行程清單")
         if not current_day_events:
             st.info(f"💡 {current_view_date} 當天尚無安排任何行程。")
         else:
@@ -952,6 +949,37 @@ with tab_cal:
                             save_data(EVENTS_FILE, events)
                             st.success("已成功刪除行程！")
                             st.rerun()
+
+        st.divider()
+
+        # --- B. 新增行程表單 ---
+        st.markdown(f"##### ➕ 新增行程至 {current_view_date}")
+        if not st.session_state.logged_in:
+            st.warning("⚠️ 請先登入帳號才能新增行程。")
+        else:
+            with st.form(key=f"add_event_form_{current_view_date}"):
+                new_title = st.text_input("行程名稱 / 事項", placeholder="例如：開會、期中考、聚餐")
+                new_cate = st.selectbox("行程分類", ["一般", "重要提醒", "個人私事", "工作會議", "考試 / 作業"])
+                new_note = st.text_area("詳細備註 (選填)", placeholder="補充說明或地點...", height=68)
+                
+                submit_btn = st.form_submit_button("➕ 儲存新增行程", use_container_width=True)
+                
+                if submit_btn:
+                    if not new_title.strip():
+                        st.error("請輸入行程名稱！")
+                    else:
+                        new_event = {
+                            "date": current_view_date,
+                            "title": new_title.strip(),
+                            "category": new_cate,
+                            "note": new_note.strip(),
+                            "creator": user_email,
+                            "cal_code": current_cal_code if current_cal_mode == "shared" else None
+                        }
+                        events.append(new_event)
+                        save_data(EVENTS_FILE, events)
+                        st.success(f"已成功新增行程「{new_title}」至 {current_view_date}！")
+                        st.rerun()
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
