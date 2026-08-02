@@ -1176,11 +1176,11 @@ footer_html = """
 """
 st.markdown(footer_html, unsafe_allow_html=True)
 # ==============================================================================
-# 6. AI 圖片生成 (Pollinations AI + FLUX 引擎 - 完全免費/免 Key 版)
+# 6. AI 圖片生成 (Pollinations FLUX - 精準修復版)
 # ==============================================================================
 with tab_img:
-    st.header("🎨 AI 頂級繪圖工房 (FLUX 引擎 - 100% 免費版)")
-    st.caption("無需 API Key！直接呼叫 Pollinations AI 頂級 FLUX 繪圖服務。")
+    st.header("🎨 AI 頂級繪圖工房 (FLUX 引擎 - 精準修復版)")
+    st.caption("修復隨機人像問題！直接對齊 Prompt，精準出圖。")
 
     col_left, col_right = st.columns([1.8, 1.2])
 
@@ -1193,7 +1193,7 @@ with tab_img:
         )
 
         use_magic_prompt = st.checkbox(
-            "✨ 開啟 Groq 提示詞大師優化 (自動翻譯並補全細節)", value=True, key="poll_magic_chk"
+            "✨ 開啟 Groq 提示詞優化 (僅精準翻譯)", value=True, key="poll_magic_chk"
         )
 
     with col_right:
@@ -1218,14 +1218,13 @@ with tab_img:
         )
 
     style_prompts = {
-        "自然寫實 (Photorealistic)": ", photorealistic, 8k resolution, cinematic lighting, highly detailed, sharp focus, masterwork",
-        "日系動漫 (Anime)": ", anime style, vibrant colors, detailed illustration, clean lines, masterpiece",
-        "賽博朋克 (Cyberpunk)": ", cyberpunk style, glowing neon lights, futuristic city background, highly detailed",
-        "3D 盲盒 (3D Render)": ", cute 3D render, Pop Mart style, smooth lighting, clay texture",
+        "自然寫實 (Photorealistic)": ", photorealistic, 8k resolution, cinematic lighting, highly detailed, sharp focus",
+        "日系動漫 (Anime)": ", anime style, vibrant colors, detailed illustration, clean lines",
+        "賽博朋克 (Cyberpunk)": ", cyberpunk style, glowing neon lights, futuristic city background",
+        "3D 盲盒 (3D Render)": ", cute 3D render, Pop Mart style, smooth lighting",
         "無風格": "",
     }
 
-    # 尺寸設定
     size_mapping = {
         "1:1 (正方形 1024x1024)": (1024, 1024),
         "16:9 (橫向 1280x720)": (1280, 720),
@@ -1251,7 +1250,7 @@ with tab_img:
 
                 final_prompt = raw_prompt.strip()
 
-                # 💡 Groq 提示詞翻譯與強化
+                # 💡 修復 Groq 提示詞：嚴格限制只做直譯與關鍵字補強，不加怪詞
                 groq_client = (
                     globals().get("client")
                     or globals().get("groq_client")
@@ -1260,11 +1259,10 @@ with tab_img:
 
                 if use_magic_prompt and groq_client:
                     try:
-                        with st.spinner("🪄 Groq AI 正在優化繪圖 Prompt..."):
+                        with st.spinner("🪄 正在精準翻譯 Prompt..."):
                             magic_sys = (
-                                "You are an expert AI Image Prompt Engineer. "
-                                "Convert the user's input into a highly detailed English image prompt. "
-                                "Output ONLY the refined English prompt, nothing else."
+                                "Translate the user's input directly into a concise English text-to-image prompt. "
+                                "Do not add any extra scenes, subjects, or abstract words. Output ONLY the translated prompt."
                             )
                             response = groq_client.chat.completions.create(
                                 model="llama-3.3-70b-versatile",
@@ -1272,33 +1270,30 @@ with tab_img:
                                     {"role": "system", "content": magic_sys},
                                     {"role": "user", "content": raw_prompt},
                                 ],
-                                temperature=0.7,
-                                max_tokens=200,
+                                temperature=0.1,  # 降低隨機度，確保精準
+                                max_tokens=100,
                             )
                             final_prompt = response.choices[0].message.content.strip()
-                            st.info(f"🪄 **Groq 魔法提示詞**：`{final_prompt}`")
+                            st.info(f"🪄 **最終英文 Prompt**：`{final_prompt}`")
                     except Exception as e:
-                        st.caption(f"提示詞優化微幅跳過: {e}")
+                        st.caption(f"翻譯跳過: {e}")
 
                 full_prompt = f"{final_prompt}{style_prompts[style_option]}"
                 width, height = size_mapping[aspect_ratio]
 
-                with st.spinner("🚀 FLUX 引擎繪畫中 (約 4 ~ 8 秒)..."):
+                with st.spinner("🚀 FLUX 引擎繪畫中..."):
                     try:
-                        # 對提示詞進行 URL 安全編碼
                         encoded_prompt = urllib.parse.quote(full_prompt)
                         seed = random.randint(1, 999999)
 
-                        # 使用 Pollinations 官方 FLUX 引擎 URL 介面
-                        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&seed={seed}&model=flux&nologo=true"
+                        # 使用安全的 pollinations 端點參數
+                        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&seed={seed}&model=flux&nologo=true&safe=true"
 
-                        # 下載圖片
                         response = requests.get(image_url, timeout=30)
 
                         if response.status_code == 200:
                             image_result = Image.open(BytesIO(response.content))
 
-                            # 紀錄使用次數
                             users[st.session_state.user_email]["daily_usage"] = (
                                 users[st.session_state.user_email].get("daily_usage", 0) + 1
                             )
@@ -1317,7 +1312,7 @@ with tab_img:
                                 use_container_width=True,
                             )
                         else:
-                            st.error(f"❌ 圖片生成失敗，狀態碼：{response.status_code}")
+                            st.error(f"❌ 生成失敗，狀態碼：{response.status_code}")
 
                     except Exception as e:
                         st.error(f"❌ 繪圖連線失敗：{e}")
