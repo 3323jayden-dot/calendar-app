@@ -653,7 +653,7 @@ with tab_ai:
             except Exception as e:
                 st.error(f"❌ 發生錯誤：{e}")
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 絕不跑版！視覺化月曆與行程表 (st.dataframe 完美 7 欄卡片)
+# TAB 1: 📅 視覺化月曆與行程表 (已升級為原生彈出式日曆選擇器)
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -668,7 +668,9 @@ with tab_cal:
 
     col_cal_sel, col_cal_mgmt = st.columns([2, 2])
     my_shared_cals = get_user_calendars(user_email)
-    cal_options = ["🔒 個人專屬行事曆"] + [f"👥 {c['name']} (代碼: {c['code']})" for c in my_shared_cals]
+    cal_options = ["🔒 個人專屬行事曆"] + [
+        f"👥 {c['name']} (代碼: {c['code']})" for c in my_shared_cals
+    ]
 
     with col_cal_sel:
         selected_cal_option = st.selectbox("📌 切換行事曆範疇", cal_options)
@@ -721,15 +723,10 @@ with tab_cal:
     with c_m:
         sel_month = st.number_input("選擇月份", min_value=1, max_value=12, value=today.month)
 
-# ------------------------------------------------------------------------------
-# 📅 100% 完全還原：自訂 CSS Grid 7 欄卡片月曆（支援窄螢幕，絕不直排）
-# ------------------------------------------------------------------------------
-with tab_cal:
-    # 1. 注入強大的 CSS Grid 樣式
+    # --- 1. 注入強大的 CSS Grid 樣式 ---
     st.markdown(
         """
         <style>
-        /* 容器與背景 */
         .cal-container {
             background-color: #f6fbf4;
             padding: 16px;
@@ -737,7 +734,6 @@ with tab_cal:
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
 
-        /* 核心：7 欄 CSS Grid，強制不論螢幕多窄都不換行成直排 */
         .cal-grid {
             display: grid !important;
             grid-template-columns: repeat(7, 1fr) !important;
@@ -745,7 +741,6 @@ with tab_cal:
             width: 100% !important;
         }
 
-        /* 星期標頭 */
         .cal-header {
             text-align: center;
             font-weight: bold;
@@ -756,7 +751,6 @@ with tab_cal:
         .header-sat { color: #38bdf8; }
         .header-weekday { color: #52525b; }
 
-        /* 卡片主體 */
         .cal-day-card {
             background-color: #ffffff;
             border-radius: 14px;
@@ -771,7 +765,6 @@ with tab_cal:
             background-color: #00c896 !important;
         }
 
-        /* 日期數字 */
         .day-num {
             font-size: 16px;
             font-weight: 700;
@@ -783,7 +776,6 @@ with tab_cal:
         .num-weekday { color: #27272a; }
         .today .day-num { color: #ffffff !important; }
 
-        /* 行程標籤 */
         .event-chip {
             font-size: 10px;
             padding: 2px 4px;
@@ -797,7 +789,6 @@ with tab_cal:
         .chip-red { background-color: #fde8e8; color: #e11d48; }
         .chip-gray { background-color: #f1f5f9; color: #475569; }
 
-        /* 即將到來 (Upcoming) 列表樣式 */
         .upcoming-title {
             font-weight: 700;
             color: #71717a;
@@ -831,13 +822,11 @@ with tab_cal:
         unsafe_allow_html=True,
     )
 
-    # 2. 構建完整的 7 欄 HTML 月曆
+    # --- 2. 構建 7 欄 HTML 月曆 ---
     cal_obj = calendar.Calendar(firstweekday=6)
     month_days = cal_obj.monthdayscalendar(sel_year, sel_month)
 
     grid_html = "<div class='cal-container'>"
-    
-    # 星期標頭 HTML
     grid_html += "<div class='cal-grid'>"
     grid_html += "<div class='cal-header header-sun'>日</div>"
     grid_html += "<div class='cal-header header-weekday'>一</div>"
@@ -848,7 +837,6 @@ with tab_cal:
     grid_html += "<div class='cal-header header-sat'>六</div>"
     grid_html += "</div>"
 
-    # 每天的卡片 HTML
     for week in month_days:
         grid_html += "<div class='cal-grid' style='margin-top: 8px;'>"
         for idx, day in enumerate(week):
@@ -859,11 +847,9 @@ with tab_cal:
                 is_today = (sel_year == today.year and sel_month == today.month and day == today.day)
                 day_evs = [e for e in active_events if e.get("date") == day_str]
 
-                # 數字色彩 (0:週日, 6:週六)
                 num_cls = "num-sun" if idx == 0 else ("num-sat" if idx == 6 else "num-weekday")
                 card_cls = "cal-day-card today" if is_today else "cal-day-card"
 
-                # 行程 Chip
                 chip_html = ""
                 if day_evs:
                     ev = day_evs[0]
@@ -878,20 +864,18 @@ with tab_cal:
     
     grid_html += "</div>"
 
-    # 3. 渲染純 HTML 月曆 (保證不拆欄、絕不跑版)
     st.markdown(grid_html, unsafe_allow_html=True)
 
-    # 4. 還原圖片下方的「即將到來」行程列表
+    # --- 3. 即將到來 (Upcoming) 行程列表 ---
     st.markdown("<div class='upcoming-title'>即將到來</div>", unsafe_allow_html=True)
 
-    # 篩選未來的行程並排序
     future_events = [e for e in active_events if e.get("date") >= today.strftime("%Y-%m-%d")]
     future_events.sort(key=lambda x: x.get("date"))
 
     if not future_events:
         st.info("💡 目前沒有即將到來的行程安排。")
     else:
-        for ev in future_events[:5]:  # 顯示前 5 筆
+        for ev in future_events[:5]:
             ev_date = datetime.strptime(ev["date"], "%Y-%m-%d").date()
             delta_days = (ev_date - today).days
             
@@ -919,18 +903,30 @@ with tab_cal:
 
     st.divider()
 
-    # 5. 操作互動區（選擇日期編輯或新增）
+    # --- 4. 操作互動區（升級為原生彈出式日曆選擇器，修正兩欄對齊與縮排） ---
     st.markdown("#### 📝 行程點擊與管理")
-   # 取得選定月份的所有日期
-all_month_days = [f"{sel_year}-{sel_month:02d}-{d:02d}" for w in month_days for d in w if d != 0]
+    
+    col_sel_date, col_btn_action = st.columns([3, 1])
+    
+    with col_sel_date:
+        # 原生彈出式日曆小工具 (st.date_input)
+        selected_date_obj = st.date_input(
+            "請選擇要查看 / 管理的日期：",
+            value=today,
+            min_value=date(2020, 1, 1),
+            max_value=date(2030, 12, 31),
+            key="cal_date_picker"
+        )
+        target_date = selected_date_obj.strftime("%Y-%m-%d")
 
-# 提供下拉選單讓使用者挑選日期
-target_date = st.selectbox("請選擇要查看 / 管理的日期：", all_month_days)
-with col_btn_d:
+    with col_btn_action:
         st.write("")
         st.write("")
         if st.button("🔍 開啟日期詳情", use_container_width=True, type="primary"):
-            open_day_dialog(target_date)
+            if "open_day_dialog" in globals():
+                open_day_dialog(target_date)
+            else:
+                st.info(f"📅 已選取日期：{target_date}")
 # ------------------------------------------------------------------------------
 # TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
