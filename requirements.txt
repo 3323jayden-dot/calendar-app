@@ -4,3 +4,4 @@ pandas
 pypdf
 openpyxl
 streamlit-cookies-controller
+groq
