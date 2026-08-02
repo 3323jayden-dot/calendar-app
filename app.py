@@ -642,105 +642,237 @@ with tab_cal:
         if st.button("🔍 開啟日期詳情", use_container_width=True, type="primary"):
             open_day_dialog(target_date)
 # ------------------------------------------------------------------------------
-# TAB 2~5 保持工具完整
+# TAB 2: 📄 PDF 救星（解密 / 合併 / 轉 Excel）
 # ------------------------------------------------------------------------------
 with tab_pdf:
     st.header("📄 PDF 救星工具箱")
     pdf_action = st.radio(
         "選擇要執行的操作：",
-        [
-            "🔓 PDF 解密與密碼移除",
-            "🧩 多檔 PDF 快速合併",
-            "📊 PDF 內文與表格轉 Excel",
-        ],
-        horizontal=True,
+        ["🔓 PDF 解密與密碼移除", "🧩 多檔 PDF 快速合併", "📊 PDF 內文與表格轉 Excel"],
+        horizontal=True
     )
     st.divider()
 
     if pdf_action == "🔓 PDF 解密與密碼移除":
-        up_pdf = st.file_uploader("上傳 PDF", type=["pdf"])
-        pdf_pwd = st.text_input("輸入密碼", type="password")
-        if up_pdf and pdf_pwd and st.button("🔑 開始解密"):
-            try:
-                reader = pypdf.PdfReader(up_pdf)
-                if reader.is_encrypted:
-                    reader.decrypt(pdf_pwd)
-                writer = pypdf.PdfWriter()
-                for page in reader.pages:
-                    writer.add_page(page)
-                out_buf = io.BytesIO()
-                writer.write(out_buf)
-                st.success("🎉 解密成功！")
-                st.download_button(
-                    "📥 下載解密檔",
-                    out_buf.getvalue(),
-                    file_name="unlocked.pdf",
-                    mime="application/pdf",
-                )
-            except Exception as e:
-                st.error(f"解密失敗：{e}")
+        st.subheader("解密保護的 PDF 檔案")
+        up_pdf = st.file_uploader("上傳密碼保護的 PDF 檔案", type=["pdf"], key="unlock_pdf_input")
+        pdf_pwd = st.text_input("請輸入該 PDF 的開啟密碼", type="password")
+        
+        if up_pdf and pdf_pwd:
+            if st.button("🔑 開始解密"):
+                try:
+                    reader = pypdf.PdfReader(up_pdf)
+                    if reader.is_encrypted:
+                        reader.decrypt(pdf_pwd)
+                    writer = pypdf.PdfWriter()
+                    for page in reader.pages:
+                        writer.add_page(page)
+                    
+                    out_buf = io.BytesIO()
+                    writer.write(out_buf)
+                    st.success("🎉 解密成功！")
+                    st.download_button("📥 下載已解密 PDF", out_buf.getvalue(), file_name="unlocked_document.pdf", mime="application/pdf")
+                except Exception as e:
+                    st.error(f"解密失敗，請檢查密碼是否正確：{e}")
 
     elif pdf_action == "🧩 多檔 PDF 快速合併":
-        pdf_files = st.file_uploader(
-            "選擇 PDF", type=["pdf"], accept_multiple_files=True
-        )
-        if pdf_files and st.button("🧩 合併"):
+        st.subheader("合併多份 PDF 為單一檔案")
+        pdf_files = st.file_uploader("選擇多個 PDF 檔案", type=["pdf"], accept_multiple_files=True, key="merge_pdf_input")
+        
+        if pdf_files and st.button("🧩 執行合併"):
             merger = pypdf.PdfWriter()
-            for p in pdf_files:
-                merger.append(p)
+            for p_file in pdf_files:
+                merger.append(p_file)
             merged_buf = io.BytesIO()
             merger.write(merged_buf)
-            st.success("🎉 合併成功！")
-            st.download_button(
-                "📥 下載合併檔",
-                merged_buf.getvalue(),
-                file_name="merged.pdf",
-                mime="application/pdf",
-            )
+            st.success("🎉 PDF 合併成功！")
+            st.download_button("📥 下載合併後的 PDF", merged_buf.getvalue(), file_name="merged_output.pdf", mime="application/pdf")
 
     elif pdf_action == "📊 PDF 內文與表格轉 Excel":
-        pdf_excel_file = st.file_uploader("上傳 PDF", type=["pdf"])
-        if pdf_excel_file and st.button("📊 提取轉 Excel"):
+        st.subheader("提取 PDF 文字與數據至 Excel")
+        pdf_excel_file = st.file_uploader("上傳含有數據或內文的 PDF", type=["pdf"], key="excel_pdf_input")
+        
+        if pdf_excel_file and st.button("📊 提取資料並生成 Excel"):
             try:
                 reader = pypdf.PdfReader(pdf_excel_file)
-                data_rows = [
-                    {"頁碼": i + 1, "擷取內容": line.strip()}
-                    for i, page in enumerate(reader.pages)
-                    for line in page.extract_text().split("\n")
-                    if line.strip()
-                ]
+                data_rows = []
+                for p_idx, page in enumerate(reader.pages):
+                    text = page.extract_text()
+                    lines = text.split("\n")
+                    for line in lines:
+                        if line.strip():
+                            data_rows.append({"頁碼": p_idx + 1, "擷取內容": line.strip()})
+                            
                 df = pd.DataFrame(data_rows)
                 excel_buf = io.BytesIO()
-                with pd.ExcelWriter(
-                    excel_buf, engine="openpyxl"
-                ) as writer:
-                    df.to_excel(writer, index=False)
-                st.success("🎉 提取成功！")
-                st.dataframe(df.head(10))
-                st.download_button(
-                    "📥 下載 Excel",
-                    excel_buf.getvalue(),
-                    file_name="extracted.xlsx",
-                )
+                with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
+                    df.to_excel(writer, index=False, sheet_name="PDF 提取內容")
+                
+                st.success(f"🎉 成功提取 {len(data_rows)} 筆資料！")
+                st.dataframe(df.head(10), use_container_width=True)
+                st.download_button("📥 下載 Excel 試算表 (.xlsx)", excel_buf.getvalue(), file_name="pdf_data_extracted.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except Exception as e:
-                st.error(f"失敗：{e}")
+                st.error(f"提取過程中發生錯誤：{e}")
 
+
+# ------------------------------------------------------------------------------
+# TAB 3: ✂️ AI 圖片處理與去背
+# ------------------------------------------------------------------------------
 with tab_img:
-    st.header("✂️ 圖像編修與去背")
-    img_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
+    st.header("✂️ 圖像編修與智能去背工具")
+    img_file = st.file_uploader("上傳圖片檔案 (JPG / PNG)", type=["jpg", "jpeg", "png"], key="img_proc_input")
+    
     if img_file:
         ori_img = Image.open(img_file)
-        st.image(ori_img, caption="原圖", use_container_width=True)
+        c_left, c_right = st.columns(2)
+        
+        with c_left:
+            st.image(ori_img, caption="原始圖片預覽", use_container_width=True)
+            
+        with c_right:
+            proc_mode = st.selectbox(
+                "選擇處理模式",
+                ["純白/淺色背景去背 (轉透明 PNG)", "調整尺寸與旋轉", "亮度/對比度微調", "黑白灰階濾鏡"]
+            )
+            
+            if proc_mode == "純白/淺色背景去背 (轉透明 PNG)":
+                tolerance = st.slider("背景色閥值 (容差度高適用於淺色背景)", 0, 100, 30)
+                if st.button("✂️ 執行去背"):
+                    img_rgba = ori_img.convert("RGBA")
+                    datas = img_rgba.getdata()
+                    new_datas = []
+                    for item in datas:
+                        if item[0] >= (255 - tolerance) and item[1] >= (255 - tolerance) and item[2] >= (255 - tolerance):
+                            new_datas.append((255, 255, 255, 0))
+                        else:
+                            new_datas.append(item)
+                            
+                    img_rgba.putdata(new_datas)
+                    out_p = io.BytesIO()
+                    img_rgba.save(out_p, format="PNG")
+                    st.image(img_rgba, caption="去背完成結果", use_container_width=True)
+                    st.download_button("📥 下載透明背景 PNG", out_p.getvalue(), file_name="nobg_image.png", mime="image/png")
 
+            elif proc_mode == "調整尺寸與旋轉":
+                w = st.number_input("新寬度 (px)", value=ori_img.width, step=10)
+                h = st.number_input("新高度 (px)", value=ori_img.height, step=10)
+                angle = st.slider("順時針旋轉角度", 0, 360, 0)
+                
+                if st.button("💾 套用修改"):
+                    resized_img = ori_img.resize((int(w), int(h))).rotate(angle, expand=True)
+                    out_p = io.BytesIO()
+                    resized_img.save(out_p, format="PNG")
+                    st.image(resized_img, caption="修改後結果", use_container_width=True)
+                    st.download_button("📥 下載圖片", out_p.getvalue(), file_name="resized_image.png", mime="image/png")
+
+            elif proc_mode == "亮度/對比度微調":
+                b_val = st.slider("亮度", 0.1, 2.0, 1.0)
+                c_val = st.slider("對比度", 0.1, 2.0, 1.0)
+                if st.button("✨ 應用效果"):
+                    enh_b = ImageEnhance.Brightness(ori_img).enhance(b_val)
+                    enh_c = ImageEnhance.Contrast(enh_b).enhance(c_val)
+                    out_p = io.BytesIO()
+                    enh_c.save(out_p, format="PNG")
+                    st.image(enh_c, caption="調色完成預覽", use_container_width=True)
+                    st.download_button("📥 下載調色圖片", out_p.getvalue(), file_name="enhanced_image.png", mime="image/png")
+
+            elif proc_mode == "黑白灰階濾鏡":
+                if st.button("🎨 轉為黑白"):
+                    gray_img = ImageOps.grayscale(ori_img)
+                    out_p = io.BytesIO()
+                    gray_img.save(out_p, format="PNG")
+                    st.image(gray_img, caption="黑白濾鏡預覽", use_container_width=True)
+                    st.download_button("📥 下載黑白圖片", out_p.getvalue(), file_name="grayscale_image.png", mime="image/png")
+
+
+# ------------------------------------------------------------------------------
+# TAB 4: 📝 萬用文本總結與防雷助理
+# ------------------------------------------------------------------------------
 with tab_summary:
-    st.header("📝 文本總結與防雷")
-    input_text = st.text_area("貼上內文", height=200)
+    st.header("📝 萬用文本總結與防雷條款助理")
+    input_text = st.text_area("請貼上欲分析長文章、新聞、合約條款或說明書內容：", height=220)
+    
+    if input_text and st.button("🔍 執行文本總結與關鍵風險分析"):
+        col_s1, col_s2 = st.columns(2)
+        sentences = [s.strip() for s in re.split(r'[。！!？?\n]', input_text) if len(s.strip()) > 3]
+        
+        with col_s1:
+            st.subheader("💡 核心重點摘要")
+            if not sentences:
+                st.write("內容太短，無法進行有效的重點擷取。")
+            else:
+                summary_items = sentences[:4] if len(sentences) >= 4 else sentences
+                for idx, item in enumerate(summary_items, 1):
+                    st.markdown(f"**{idx}.** {item}")
 
+        with col_s2:
+            st.subheader("⚠️ 陷阱與風險關鍵字掃描")
+            risk_keywords = ["違約金", "無條件", "不得異議", "自動續約", "放棄", "負擔費用", "損害賠償", "終止條款", "免責", "利息", "逾期"]
+            found_keywords = [kw for kw in risk_keywords if kw in input_text]
+            
+            if found_keywords:
+                st.error(f"🚨 注意！偵測到風險關鍵字：**{', '.join(found_keywords)}**")
+                st.markdown("---")
+                for s in sentences:
+                    for rkw in found_keywords:
+                        if rkw in s:
+                            st.warning(f"🚩 `{s}`")
+                            break
+            else:
+                st.success("✅ 未在文章中發現常見的風險與陷阱關鍵字。")
+
+
+# ------------------------------------------------------------------------------
+# TAB 5: 📱 社群 IG/Threads 一鍵切圖
+# ------------------------------------------------------------------------------
 with tab_ig:
-    st.header("📱 社群 IG 切圖")
-    ig_img_file = st.file_uploader(
-        "上傳圖片", type=["jpg", "jpeg", "png"], key="ig_file"
-    )
+    st.header("📱 社群 IG / Threads 一鍵九宮格與連圖裁切")
+    social_file = st.file_uploader("上傳要用於排版的原始照片", type=["jpg", "jpeg", "png"], key="social_crop_input")
+    
+    if social_file:
+        s_img = Image.open(social_file)
+        crop_type = st.radio("選擇裁切模式", ["3x3 九宮格 (IG 牆面拼圖)", "1x3 橫向連圖 (Threads/IG 輪播)"], horizontal=True)
+        
+        if st.button("✂️ 執行切圖排版"):
+            sw, sh = s_img.size
+            crop_results = []
+            
+            if crop_type == "3x3 九宮格 (IG 牆面拼圖)":
+                min_edge = min(sw, sh)
+                l = (sw - min_edge) / 2
+                t = (sh - min_edge) / 2
+                sq_img = s_img.crop((l, t, l + min_edge, t + min_edge))
+                
+                step = min_edge // 3
+                for r in range(3):
+                    for c in range(3):
+                        box = (c * step, r * step, (c + 1) * step, (r + 1) * step)
+                        crop_results.append((f"ig_grid_{r+1}_{c+1}.png", sq_img.crop(box)))
+                        
+            elif crop_type == "1x3 橫向連圖 (Threads/IG 輪播)":
+                step = sw // 3
+                for c in range(3):
+                    box = (c * step, 0, (c + 1) * step, sh)
+                    crop_results.append((f"social_carousel_{c+1}.png", s_img.crop(box)))
+
+            st.success(f"🎉 成功切分出 {len(crop_results)} 張圖片！")
+            
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w") as zf:
+                for img_name, img_obj in crop_results:
+                    b = io.BytesIO()
+                    img_obj.save(b, format="PNG")
+                    zf.writestr(img_name, b.getvalue())
+
+            st.download_button("📦 一鍵下載全部圖片 (ZIP 打包檔)", zip_buf.getvalue(), file_name="social_crops.zip", mime="application/zip")
+            
+            st.divider()
+            preview_cols = st.columns(3)
+            for i, (fname, p_img) in enumerate(crop_results):
+                with preview_cols[i % 3]:
+                    st.image(p_img, caption=fname, use_container_width=True)
+
+
 # ==============================================================================
 # 5. 頁尾客服資訊 (小字顯示)
 # ==============================================================================
