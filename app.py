@@ -240,50 +240,73 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 
 import streamlit.components.v1 as components
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 智囊團
+# TAB 0: 🤖 Groq AI 智囊團（聊天室對話介面）
 # ------------------------------------------------------------------------------
 with tab_ai:
-    st.header("🤖 Groq 極速 AI 助手")
-    st.caption("基於 Llama 3.3 超高速度語言模型，提供即時問答、行程規劃與文字創作服務。")
+    st.header("🤖 Groq 極速 AI 聊天助手")
+    st.caption("基於 Llama 3.3 模型，即時對話且支援歷史紀錄。")
 
-    # 檢查 API Key
-    if "GROQ_API_KEY" not in st.secrets:
-        st.error("⚠️ 未在 Streamlit Secrets 中設定 GROQ_API_KEY，請至 Streamlit Cloud 設定。")
-    else:
-        # 功能選擇與輸入
-        ai_mode = st.radio("選擇模式：", ["💬 自由對話", "🗓️ 行程規劃", "✍️ 文章修飾"], horizontal=True)
-        user_input = st.text_area("請輸入您的提示詞：", placeholder="例如：幫我規劃花蓮 2 天 1 夜行程...", height=120)
+    # 1. 初始化聊天紀錄 (Session State)
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            {"role": "assistant", "content": "你好！我是你的 AI 助手，今天有什麼想聊聊或需要我幫忙規劃的嗎？"}
+        ]
 
-        if st.button("🚀 讓 AI 立即生成", use_container_width=True):
-            if user_input.strip():
-                with st.spinner("⚡ Groq AI 思考中..."):
+    # 2. 清除對話紀錄按鈕
+    col_title, col_btn = st.columns([4, 1])
+    with col_btn:
+        if st.button("🗑️ 清除對話", use_container_width=True):
+            st.session_state.messages = [
+                {"role": "assistant", "content": "對話紀錄已重置！請告訴我你的需求。"}
+            ]
+            st.rerun()
+
+    # 3. 渲染過往的聊天紀錄（歷史氣泡）
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # 4. 底部聊天輸入框
+    if prompt := st.chat_input("請輸入您的問題（例如：幫我規劃花蓮兩天一夜行程...）"):
+        
+        # 檢查 API Key
+        if "GROQ_API_KEY" not in st.secrets or not st.secrets["GROQ_API_KEY"]:
+            st.error("⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`，請先至後台設定。")
+        else:
+            # (A) 顯示使用者的訊息氣泡
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            # (B) 呼叫 Groq API 並流式輸出/生成回應
+            with st.chat_message("assistant"):
+                with st.spinner("思考中..."):
                     try:
                         from groq import Groq
                         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                        
-                        prompts = {
-                            "💬 自由對話": "你是一個親切且專業的繁體中文 AI 助手。",
-                            "🗓️ 行程規劃": "你是一個專業旅遊規劃師，請輸出帶有時間與景點建議的繁體中文行程表格。",
-                            "✍️ 文章修飾": "你是一個專業文案編輯，請優化文采與流暢度。"
-                        }
 
-                        completion = client.chat.completions.create(
+                        # 組裝對話歷史供 AI 閱讀上下文
+                        api_messages = [
+                            {"role": "system", "content": "你是一個親切且專業的繁體中文 AI 助手。"}
+                        ] + [
+                            {"role": m["role"], "content": m["content"]}
+                            for m in st.session_state.messages
+                        ]
+
+                        response = client.chat.completions.create(
                             model="llama-3.3-70b-versatile",
-                            messages=[
-                                {"role": "system", "content": prompts[ai_mode]},
-                                {"role": "user", "content": user_input.strip()}
-                            ],
+                            messages=api_messages,
                             temperature=0.7,
                         )
 
-                        st.success("✅ 生成完成！")
-                        st.markdown("### 💡 AI 回覆：")
-                        st.write(completion.choices[0].message.content)
+                        ai_reply = response.choices[0].message.content
+                        st.markdown(ai_reply)
+
+                        # (C) 將 AI 的回覆存入歷史紀錄
+                        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
 
                     except Exception as e:
                         st.error(f"❌ 發生錯誤：{e}")
-            else:
-                st.warning("請先輸入內容喔！")
 # ------------------------------------------------------------------------------
 # TAB 1: 📅 視覺化日曆網格（7 欄完美不跑版 + 支援直接點擊日期彈窗）
 # ------------------------------------------------------------------------------
