@@ -318,7 +318,7 @@ st.title("⚡ 多功能數位工作助理與行事曆")
 
 tab_ai, tab_img, tab_cal, tab_pdf, tab_處理, tab_summary, tab_ig = st.tabs([
     "💻 Groq AI 行程智囊團",
-    "🎨 AI 圖片生成",
+    "🎨 AI 圖片生成<<開發中>>",
     "📅 視覺化日曆與行程",
     "📄 PDF 救星",
     "✂️ AI 圖片處理與去背",
