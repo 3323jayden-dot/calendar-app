@@ -1,5 +1,4 @@
 import calendar
-from datetime import date, datetime
 import io
 import json
 import os
@@ -7,6 +6,7 @@ import random
 import re
 import string
 import zipfile
+from datetime import date, datetime, timedelta
 
 from groq import Groq
 import pandas as pd
@@ -27,17 +27,20 @@ st.set_page_config(
 
 USERS_FILE = "users.json"
 EVENTS_FILE = "events.json"
-CALENDARS_FILE = "calendars.json"  # 儲存共享行事曆與成員關係
+CALENDARS_FILE = "calendars.json"
 
-# 💡 管理員 Email 帳號
 ADMIN_EMAIL = "admin@example.com"
-
-# 💡 PWA 桌面圖示直連網址
 ICON_URL = "https://raw.githubusercontent.com/3323jayden-dot/calendar-app/main/istockphoto-1033804852-612x612.jpg"
+
+# 各會員等級的每日使用額度上限
+PLAN_LIMITS = {
+    "free": 5,  # 免費版：每天限 5 次
+    "pro": 100,  # Pro 付費版：每天 100 次
+}
 
 
 # ==============================================================================
-# 1. JSON 資料讀寫與輔助函式 (必須提至最上方)
+# 1. JSON 資料讀寫與輔助函式
 # ==============================================================================
 def load_data(filename, default_val):
     if os.path.exists(filename):
@@ -61,35 +64,76 @@ calendars_data = load_data(CALENDARS_FILE, [])
 
 
 def get_user_calendars(user_email):
-    """取得該使用者擁有的共享行事曆清單"""
     if not user_email:
         return []
     user_cals = []
     for c in calendars_data:
-        # 如果是建立者或是成員之一
         if c.get("owner") == user_email or user_email in c.get("members", []):
             user_cals.append(c)
     return user_cals
 
 
+def get_user_all_events(user_email):
+    """抓取與該使用者相關的所有行程（個人 + 所有參加的共享行事曆）"""
+    my_cals = get_user_calendars(user_email)
+    my_cal_codes = [c["code"] for c in my_cals]
+
+    user_events = []
+    for ev in events:
+        # 個人行程
+        if ev.get("creator") == user_email and not ev.get("cal_code"):
+            user_events.append(ev)
+        # 所屬共享行事曆行程
+        elif ev.get("cal_code") in my_cal_codes:
+            user_events.append(ev)
+    return user_events
+
+
+def check_and_update_usage(user_email):
+    """檢查並更新使用者的每日使用次數"""
+    if user_email not in users:
+        return False, "用戶不存在", 0, 0
+
+    user_info = users[user_email]
+    today_str = str(date.today())
+
+    # 如果是新的一天，重置計數
+    if user_info.get("last_use_date") != today_str:
+        user_info["last_use_date"] = today_str
+        user_info["daily_usage"] = 0
+
+    role = user_info.get("role", "free")
+    limit = PLAN_LIMITS.get(role, 5)
+    current_usage = user_info.get("daily_usage", 0)
+
+    if current_usage >= limit:
+        return (
+            False,
+            f"⚠️ 您今日的 API 發問額度已達上限 ({current_usage}/{limit} 次)！升級為 Pro 即可解鎖更多額度。",
+            current_usage,
+            limit,
+        )
+
+    return True, "", current_usage, limit
+
+
 # ==============================================================================
-# 2. 自動保持登入邏輯（使用 Streamlit 原生 st.query_params）
+# 2. 自動保持登入邏輯
 # ==============================================================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
 
-# 從網址參數讀取使用者資訊（自動登入）
 query_params = st.query_params
 if "user" in query_params and not st.session_state.logged_in:
     saved_user = query_params["user"]
-    if saved_user:
+    if saved_user and saved_user in users:
         st.session_state.logged_in = True
         st.session_state.user_email = saved_user
 
 # ==============================================================================
-# 3. PWA 手機安裝與 Manifest 注入 (支援 iOS & Android)
+# 3. PWA 手機安裝腳本
 # ==============================================================================
 pwa_html = f"""
 <script>
@@ -121,21 +165,6 @@ pwa_html = f"""
     linkTag.rel = 'manifest';
     linkTag.href = manifestURL;
     document.head.appendChild(linkTag);
-
-    let appleIcon = document.createElement('link');
-    appleIcon.rel = 'apple-touch-icon';
-    appleIcon.href = '{ICON_URL}';
-    document.head.appendChild(appleIcon);
-
-    if ('serviceWorker' in navigator) {{
-      const swCode = `
-        self.addEventListener('install', (e) => self.skipWaiting());
-        self.addEventListener('activate', (e) => self.clients.claim());
-      `;
-      const blobSW = new Blob([swCode], {{type: 'text/javascript'}});
-      const swURL = URL.createObjectURL(blobSW);
-      navigator.serviceWorker.register(swURL).catch(err => console.log('SW fail:', err));
-    }}
 }})();
 </script>
 """
@@ -143,13 +172,12 @@ components.html(pwa_html, height=0)
 
 
 # ==============================================================================
-# 4. 會員驗證系統與側邊欄 (登入 / 註冊 / 管理員後台)
+# 4. 會員驗證系統與側邊欄 (會員等級、用量提示與管理員)
 # ==============================================================================
 st.sidebar.title("🔐 會員系統")
 
 if not st.session_state.logged_in:
     auth_mode = st.sidebar.radio("選擇操作選項", ["帳號登入", "會員註冊"])
-
     email_input = st.sidebar.text_input("電子郵件 (Email)").strip().lower()
     password_input = st.sidebar.text_input("密碼", type="password")
 
@@ -164,6 +192,9 @@ if not st.session_state.logged_in:
                 users[email_input] = {
                     "name": name_input,
                     "password": password_input,
+                    "role": "free",  # 預設免費會員
+                    "daily_usage": 0,
+                    "last_use_date": str(date.today()),
                 }
                 save_data(USERS_FILE, users)
                 st.sidebar.success("🎉 註冊成功！請切換至「帳號登入」。")
@@ -181,18 +212,41 @@ if not st.session_state.logged_in:
             else:
                 st.sidebar.error("帳號或密碼輸入錯誤！")
 else:
-    current_user_name = users.get(st.session_state.user_email, {}).get(
-        "name", "會員"
+    u_data = users.get(st.session_state.user_email, {})
+    current_user_name = u_data.get("name", "會員")
+    user_role = u_data.get("role", "free")
+
+    # 顯示會員徽章與用量資訊
+    role_badge = "👑 Pro 尊榮會員" if user_role == "pro" else "🌱 Free 免費會員"
+    st.sidebar.success(f"歡迎，**{current_user_name}**！")
+    st.sidebar.markdown(f"**目前身分**：`{role_badge}`")
+
+    # 顯示今日剩餘額度
+    _, _, usage, limit = check_and_update_usage(st.session_state.user_email)
+    st.sidebar.progress(
+        min(usage / limit, 1.0),
+        text=f"今日用量：{usage} / {limit} 次",
     )
-    st.sidebar.success(f"歡迎回來，**{current_user_name}**！")
-    st.sidebar.caption(f"目前帳號：`{st.session_state.user_email}`")
+
+    if user_role == "free":
+        with st.sidebar.expander("💎 升級 Pro 會員方案"):
+            st.markdown(
+                """
+            **Pro 方案專屬權限：**
+            * 🚀 每日 100 次 AI 高級對話額度
+            * 📅 **AI 讀取行事曆**，自動智慧幫你排行程
+            * ⚡ 優先回應速度
+            
+            👉 請聯繫客服/管理員開通權限！
+            """
+            )
 
     if st.sidebar.button("安全登出", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.user_email = ""
         st.rerun()
 
-# 🛡️ 管理員專屬後台
+# 🛡️ 管理員專屬後台（可幫使用者升級 Pro）
 if (
     st.session_state.logged_in
     and st.session_state.user_email == "3323jayden@gmail.com"
@@ -201,37 +255,32 @@ if (
     with st.sidebar.expander(
         "🛡️ 系統後台管理 (Admin Only)", expanded=False
     ):
-        st.markdown("**管理員帳號控制台**")
-        if not users:
-            st.info("尚無註冊會員資料。")
-        else:
+        st.markdown("**管理員控制台**")
+        if users:
             selected_user_email = st.selectbox(
                 "選擇要管理的會員", list(users.keys())
             )
             if selected_user_email:
                 u_info = users[selected_user_email]
-                st.text(f"用戶暱稱: {u_info.get('name', '未設定')}")
+                st.text(f"暱稱: {u_info.get('name', '未設定')}")
 
-                new_pwd_input = st.text_input(
-                    "該帳號密碼",
+                new_role = st.selectbox(
+                    "調整會員等級",
+                    ["free", "pro"],
+                    index=0 if u_info.get("role") == "free" else 1,
+                )
+                new_pwd = st.text_input(
+                    "密碼",
                     value=u_info.get("password", ""),
                     key="admin_pwd_edit",
                 )
 
-                c_save, c_del = st.columns(2)
-                with c_save:
-                    if st.button("💾 更新資料"):
-                        users[selected_user_email]["password"] = new_pwd_input
-                        save_data(USERS_FILE, users)
-                        st.success("更新成功！")
-                        st.rerun()
-                with c_del:
-                    if selected_user_email != ADMIN_EMAIL:
-                        if st.button("🗑️ 刪除帳號"):
-                            del users[selected_user_email]
-                            save_data(USERS_FILE, users)
-                            st.warning("帳號已刪除")
-                            st.rerun()
+                if st.button("💾 更新會員設定"):
+                    users[selected_user_email]["role"] = new_role
+                    users[selected_user_email]["password"] = new_pwd
+                    save_data(USERS_FILE, users)
+                    st.success("會員權限已成功更新！")
+                    st.rerun()
 
 
 # ==============================================================================
@@ -240,7 +289,7 @@ if (
 st.title("⚡ 多功能數位工作助理與行事曆")
 
 tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
-    "🤖 Groq AI 智囊團",
+    "🤖 Groq AI 行程智囊團",
     "📅 視覺化日曆與行程",
     "📄 PDF 救星",
     "✂️ AI 圖片處理與去背",
@@ -249,7 +298,7 @@ tab_ai, tab_cal, tab_pdf, tab_img, tab_summary, tab_ig = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 0: 🤖 Groq AI 智囊團
+# TAB 0: 🤖 Groq AI 行程智囊團 (支援讀取行事曆 + 付費額度控管)
 # ------------------------------------------------------------------------------
 with tab_ai:
     if "messages" not in st.session_state:
@@ -261,7 +310,7 @@ with tab_ai:
         .chat-scroll-container {
             max-width: 800px;
             margin: 0 auto;
-            height: 500px;
+            height: 480px;
             overflow-y: auto;
             padding: 10px 15px;
             border-radius: 12px;
@@ -269,10 +318,10 @@ with tab_ai:
         }
         .welcome-box {
             text-align: center;
-            padding: 80px 20px 20px 20px;
+            padding: 60px 20px 20px 20px;
         }
         .welcome-title {
-            font-size: 34px;
+            font-size: 32px;
             font-weight: 700;
             background: linear-gradient(135deg, #4285f4, #d93025, #fbbc04, #34a853);
             -webkit-background-clip: text;
@@ -280,52 +329,47 @@ with tab_ai:
             margin-bottom: 10px;
         }
         .welcome-sub { color: #5f6368; font-size: 15px; }
-        .user-bubble-container {
-            display: flex;
-            justify-content: flex-end;
-            margin-bottom: 16px;
-        }
+        .user-bubble-container { display: flex; justify-content: flex-end; margin-bottom: 16px; }
         .user-bubble {
-            background-color: #f1f3f4;
-            color: #202124;
-            padding: 10px 18px;
-            border-radius: 20px 20px 4px 20px;
-            max-width: 75%;
-            font-size: 15px;
-            line-height: 1.5;
-            word-break: break-word;
+            background-color: #f1f3f4; color: #202124; padding: 10px 18px;
+            border-radius: 20px 20px 4px 20px; max-width: 75%; font-size: 15px; line-height: 1.5;
         }
-        .ai-bubble-container {
-            display: flex;
-            justify-content: flex-start;
-            margin-bottom: 24px;
-        }
-        .ai-bubble {
-            color: #1f1f1f;
-            width: 100%;
-            font-size: 15px;
-            line-height: 1.6;
-            word-break: break-word;
-        }
+        .ai-bubble-container { display: flex; justify-content: flex-start; margin-bottom: 24px; }
+        .ai-bubble { color: #1f1f1f; width: 100%; font-size: 15px; line-height: 1.6; }
         </style>
     """,
         unsafe_allow_html=True,
     )
 
-    if st.session_state.messages:
-        c_space, c_reset = st.columns([5, 1])
-        with c_reset:
+    # 上方控制選項
+    col_c1, col_c2 = st.columns([4, 1])
+    with col_c1:
+        is_pro = (
+            st.session_state.logged_in
+            and users.get(st.session_state.user_email, {}).get("role") == "pro"
+        )
+        include_cal_data = st.checkbox(
+            "📅 允許 AI 存取我的行事曆（AI 將自動評估你的空閒時間並幫你規劃行程）",
+            value=is_pro,
+            disabled=not is_pro,
+            help="此功能為 Pro 會員專屬。勾選後 AI 將能讀取你當前的行程表。",
+        )
+        if not is_pro and st.session_state.logged_in:
+            st.caption("💡 提示：升級為 Pro 會員即可開啟 AI 讀取行事曆與智慧排程功能！")
+
+    with col_c2:
+        if st.session_state.messages:
             if st.button("➕ 新對話", use_container_width=True):
                 st.session_state.messages = []
                 st.rerun()
 
+    # 對話渲染
     html_items = ['<div class="chat-scroll-container" id="chat-box">']
-
     if not st.session_state.messages:
         html_items.append(
             '<div class="welcome-box">'
-            '<div class="welcome-title">Jayden，儘管發問吧！</div>'
-            '<div class="welcome-sub">我可以幫你規劃行程、撰寫文案或解答各種問題</div>'
+            '<div class="welcome-title">Jayden，盡情與 AI 規劃行程吧！</div>'
+            '<div class="welcome-sub">我可以幫你檢視近期的空檔時間、安排行程、撰寫文案或解答各種問題</div>'
             "</div>"
         )
     else:
@@ -339,37 +383,66 @@ with tab_ai:
                 html_items.append(
                     f'<div class="ai-bubble-container"><div class="ai-bubble">{content}</div></div>'
                 )
-
     html_items.append("</div>")
     st.markdown("".join(html_items), unsafe_allow_html=True)
 
-    if prompt := st.chat_input("問問 AI 助手..."):
-        if (
-            "GROQ_API_KEY" not in st.secrets
-            or not st.secrets["GROQ_API_KEY"]
-        ):
-            st.error(
-                "⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`，請先至後台設定。"
-            )
+    # 聊天輸入與送出處理
+    if prompt := st.chat_input("輸入問題或請 AI 幫你規劃行程..."):
+        if not st.session_state.logged_in:
+            st.error("⚠️ 請先於左側邊欄「登入帳號」後再使用 AI 對話功能。")
         else:
-            st.session_state.messages.append(
-                {"role": "user", "content": prompt}
+            # 1. 檢查用量限制
+            allowed, msg, _, _ = check_and_update_usage(
+                st.session_state.user_email
             )
-            st.rerun()
+            if not allowed:
+                st.error(msg)
+            elif (
+                "GROQ_API_KEY" not in st.secrets
+                or not st.secrets["GROQ_API_KEY"]
+            ):
+                st.error("⚠️ 未在 Streamlit Secrets 中設定 `GROQ_API_KEY`。")
+            else:
+                # 2. 扣除次數
+                users[st.session_state.user_email]["daily_usage"] += 1
+                save_data(USERS_FILE, users)
 
+                st.session_state.messages.append(
+                    {"role": "user", "content": prompt}
+                )
+                st.rerun()
+
+    # 觸發 API 請求
     if (
         st.session_state.messages
         and st.session_state.messages[-1]["role"] == "user"
     ):
-        with st.spinner("AI 思考中..."):
+        with st.spinner("🤖 AI 正在分析行程並思考中..."):
             try:
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                api_messages = [
-                    {
-                        "role": "system",
-                        "content": "你是一個親切且專業的繁體中文 AI 助手。",
-                    }
-                ] + [
+
+                # 動態建構 System Prompt
+                system_instruction = (
+                    "你是一個親切且極其專業的繁體中文 AI 時間管理與行程規劃助手。"
+                )
+
+                # 若開啟行事曆存取權限，將使用者行程打包傳給 AI
+                if include_cal_data and st.session_state.logged_in:
+                    user_evs = get_user_all_events(st.session_state.user_email)
+                    if user_evs:
+                        ev_summary = "\n".join([
+                            f"- 日期: {e.get('date')} | 行程名稱: {e.get('title')} | 分類: {e.get('category','一般')} | 備註: {e.get('description','')}"
+                            for e in user_evs
+                        ])
+                        system_instruction += (
+                            f"\n\n目前使用者的完整行事曆如下：\n{ev_summary}\n\n"
+                            f"今天日期是：{date.today()}。當使用者詢問關於時間安排、行程規劃或是否有空時，"
+                            f"請務必參考上述行事曆資料，幫他避開衝突時間並給出具體的排程建議。"
+                        )
+                    else:
+                        system_instruction += f"\n\n目前使用者的行事曆上沒有任何行程。今天日期是：{date.today()}。"
+
+                api_messages = [{"role": "system", "content": system_instruction}] + [
                     {"role": m["role"], "content": m["content"]}
                     for m in st.session_state.messages
                 ]
@@ -378,6 +451,7 @@ with tab_ai:
                     model="llama-3.3-70b-versatile",
                     messages=api_messages,
                     temperature=0.7,
+                    max_tokens=1500,  # 限制輸出大小
                 )
 
                 ai_reply = response.choices[0].message.content
@@ -388,15 +462,14 @@ with tab_ai:
             except Exception as e:
                 st.error(f"❌ 發生錯誤：{e}")
 
+    # 自動捲動至最底部
     if st.session_state.messages:
         components.html(
             """
             <script>
                 setTimeout(function() {
                     var chatBox = window.parent.document.getElementById('chat-box');
-                    if (chatBox) {
-                        chatBox.scrollTop = chatBox.scrollHeight;
-                    }
+                    if (chatBox) { chatBox.scrollTop = chatBox.scrollHeight; }
                 }, 100);
             </script>
             """,
@@ -404,7 +477,7 @@ with tab_ai:
         )
 
 # ------------------------------------------------------------------------------
-# TAB 1: 📅 視覺化日曆網格
+# TAB 1: 📅 視覺化日曆網格 (保持原完整功能)
 # ------------------------------------------------------------------------------
 with tab_cal:
     st.header("📅 視覺化月曆與行程表")
@@ -458,9 +531,7 @@ with tab_cal:
                         }
                         calendars_data.append(new_cal)
                         save_data(CALENDARS_FILE, calendars_data)
-                        st.success(
-                            f"建立成功！邀請碼為：**{inv_code}**"
-                        )
+                        st.success(f"建立成功！邀請碼為：**{inv_code}**")
                         st.rerun()
                     else:
                         st.error("請輸入名稱")
@@ -477,9 +548,7 @@ with tab_cal:
                         if user_email not in target_cal.setdefault("members", []):
                             target_cal["members"].append(user_email)
                             save_data(CALENDARS_FILE, calendars_data)
-                            st.success(
-                                f"已成功加入「{target_cal['name']}」！"
-                            )
+                            st.success(f"已成功加入「{target_cal['name']}」！")
                             st.rerun()
                         else:
                             st.info("您已經是該行事曆的成員囉！")
@@ -509,9 +578,7 @@ with tab_cal:
 
     @st.dialog("📅 行程安排與管理", width="large")
     def show_event_dialog(selected_date_str):
-        st.subheader(
-            f"📌 {selected_date_str} 的行程 ({selected_cal_option})"
-        )
+        st.subheader(f"📌 {selected_date_str} 的行程 ({selected_cal_option})")
         day_events = [
             e for e in active_events if e.get("date") == selected_date_str
         ]
@@ -577,25 +644,6 @@ with tab_cal:
         else:
             st.info("🔒 請於側邊欄登入帳號後進行行程新增。")
 
-    st.markdown(
-        """
-        <style>
-        div[data-testid="column"] {
-            min-width: 0px !important;
-            flex: 1 1 0px !important;
-        }
-        div[data-testid="stHorizontalBlock"] button {
-            height: 70px !important;
-            padding: 2px !important;
-            font-size: 14px !important;
-            white-space: pre-wrap !important;
-            line-height: 1.2 !important;
-        }
-        </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
     cal = calendar.monthcalendar(sel_year, sel_month)
     weekdays = ["一", "二", "三", "四", "五", "六", "日"]
 
@@ -612,47 +660,20 @@ with tab_cal:
             display: grid !important;
             grid-template-columns: repeat(7, minmax(40px, 1fr)) !important;
             gap: 6px;
-            width: 100%;
-            min-width: 320px;
+            width: 100%; min-width: 320px;
         }
-        .cal-header {
-            text-align: center;
-            font-weight: bold;
-            color: #718096;
-            font-size: 13px;
-            padding: 4px 0;
-        }
+        .cal-header { text-align: center; font-weight: bold; color: #718096; font-size: 13px; padding: 4px 0; }
         .cal-card {
-            background-color: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            height: 65px;
-            padding: 4px;
-            box-sizing: border-box;
-            cursor: pointer;
-            transition: all 0.15s ease-in-out;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
+            background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px;
+            height: 65px; padding: 4px; box-sizing: border-box; cursor: pointer;
+            transition: all 0.15s ease-in-out; display: flex; flex-direction: column; justify-content: flex-start;
         }
-        .cal-card:hover {
-            border-color: #cbd5e0;
-            background-color: #f7fafc;
-            transform: translateY(-1px);
-        }
+        .cal-card:hover { border-color: #cbd5e0; background-color: #f7fafc; transform: translateY(-1px); }
         .cal-empty { height: 65px; }
         .day-num { font-size: 14px; font-weight: bold; color: #2d3748; }
         .tag-pink {
-            background-color: #ffebee;
-            color: #e53935;
-            font-size: 10px;
-            font-weight: 600;
-            padding: 2px 4px;
-            border-radius: 6px;
-            margin-top: 4px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            background-color: #ffebee; color: #e53935; font-size: 10px; font-weight: 600;
+            padding: 2px 4px; border-radius: 6px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
     </style>
     <div class="cal-wrapper"><div class="cal-grid">
@@ -680,7 +701,6 @@ with tab_cal:
                     tag_html = f'<div class="tag-pink">📌{short_title}</div>'
 
                 click_js = f"window.parent.location.href = window.parent.location.pathname + '?click_date={day_str}';"
-
                 html_code += f"""
                 <div class="cal-card" onclick="{click_js}">
                     <div class="day-num">{day}</div>
@@ -714,27 +734,26 @@ with tab_pdf:
         )
         pdf_pwd = st.text_input("請輸入該 PDF 的開啟密碼", type="password")
 
-        if up_pdf and pdf_pwd:
-            if st.button("🔑 開始解密"):
-                try:
-                    reader = pypdf.PdfReader(up_pdf)
-                    if reader.is_encrypted:
-                        reader.decrypt(pdf_pwd)
-                    writer = pypdf.PdfWriter()
-                    for page in reader.pages:
-                        writer.add_page(page)
+        if up_pdf and pdf_pwd and st.button("🔑 開始解密"):
+            try:
+                reader = pypdf.PdfReader(up_pdf)
+                if reader.is_encrypted:
+                    reader.decrypt(pdf_pwd)
+                writer = pypdf.PdfWriter()
+                for page in reader.pages:
+                    writer.add_page(page)
 
-                    out_buf = io.BytesIO()
-                    writer.write(out_buf)
-                    st.success("🎉 解密成功！")
-                    st.download_button(
-                        "📥 下載已解密 PDF",
-                        out_buf.getvalue(),
-                        file_name="unlocked_document.pdf",
-                        mime="application/pdf",
-                    )
-                except Exception as e:
-                    st.error(f"解密失敗，請檢查密碼是否正確：{e}")
+                out_buf = io.BytesIO()
+                writer.write(out_buf)
+                st.success("🎉 解密成功！")
+                st.download_button(
+                    "📥 下載已解密 PDF",
+                    out_buf.getvalue(),
+                    file_name="unlocked_document.pdf",
+                    mime="application/pdf",
+                )
+            except Exception as e:
+                st.error(f"解密失敗：{e}")
 
     elif pdf_action == "🧩 多檔 PDF 快速合併":
         st.subheader("合併多份 PDF 為單一檔案")
@@ -771,8 +790,7 @@ with tab_pdf:
                 data_rows = []
                 for p_idx, page in enumerate(reader.pages):
                     text = page.extract_text()
-                    lines = text.split("\n")
-                    for line in lines:
+                    for line in text.split("\n"):
                         if line.strip():
                             data_rows.append(
                                 {"頁碼": p_idx + 1, "擷取內容": line.strip()}
@@ -828,9 +846,7 @@ with tab_img:
             )
 
             if proc_mode == "純白/淺色背景去背 (轉透明 PNG)":
-                tolerance = st.slider(
-                    "背景色閥值 (容差度高適用於淺色背景)", 0, 100, 30
-                )
+                tolerance = st.slider("背景色閥值", 0, 100, 30)
                 if st.button("✂️ 執行去背"):
                     img_rgba = ori_img.convert("RGBA")
                     datas = img_rgba.getdata()
@@ -925,32 +941,26 @@ with tab_img:
                     )
 
 # ------------------------------------------------------------------------------
-# TAB 4: 📝 萬用文本總結與防雷助理 (修復原本中斷處)
+# TAB 4: 📝 萬用文本總結與防雷助理
 # ------------------------------------------------------------------------------
 with tab_summary:
     st.header("📝 萬用文本總結與防雷條款助理")
-    input_text = st.text_area(
-        "請貼上欲分析長文章、新聞、合約條款或說明書內容：", height=220
-    )
+    input_text = st.text_area("請貼上欲分析長文章或條款：", height=220)
 
     if input_text and st.button("🔍 執行文本總結與關鍵風險分析"):
         col_s1, col_s2 = st.columns(2)
-
         with col_s1:
             st.subheader("📌 核心摘要重點")
-            # 依據標點符號初步拆分句子
             sentences = [
                 s.strip()
                 for s in re.split(r"[。\n！!？?]", input_text)
                 if s.strip()
             ]
-            summary_items = sentences[:5]  # 抓取前五項重點
-            for i, s in enumerate(summary_items, 1):
+            for i, s in enumerate(sentences[:5], 1):
                 st.markdown(f"**{i}.** {s}")
 
         with col_s2:
             st.subheader("⚠️ 關鍵風險與防雷提醒")
-            # 預設風險關鍵字檢測
             risk_keywords = [
                 "費用",
                 "違約金",
@@ -959,12 +969,10 @@ with tab_summary:
                 "責任",
                 "不退還",
                 "賠償",
-                "終止",
             ]
             found_risks = [
                 s for s in sentences if any(k in s for k in risk_keywords)
             ]
-
             if found_risks:
                 for r in found_risks:
                     st.warning(f"🚨 注意事項：{r}")
@@ -972,7 +980,7 @@ with tab_summary:
                 st.success("✅ 未在文章中發現明顯常見風險關鍵字。")
 
 # ------------------------------------------------------------------------------
-# TAB 5: 📱 社群 IG/Threads 一鍵切圖 (補充補全)
+# TAB 5: 📱 社群 IG/Threads 一鍵切圖
 # ------------------------------------------------------------------------------
 with tab_ig:
     st.header("📱 社群 IG / Threads 拼圖切圖助手")
@@ -998,10 +1006,8 @@ with tab_ig:
                 for i in range(split_count):
                     left = i * part_w
                     right = (i + 1) * part_w if i < split_count - 1 else w
-                    box = (left, 0, right, h)
-                    cropped = ig_img.crop(box)
+                    cropped = ig_img.crop((left, 0, right, h))
 
-                    # 儲存至記憶體與 ZIP 壓縮檔
                     img_byte_arr = io.BytesIO()
                     cropped.save(img_byte_arr, format="PNG")
                     zip_file.writestr(
