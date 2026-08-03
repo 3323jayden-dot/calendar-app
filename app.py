@@ -33,7 +33,7 @@ CALENDARS_FILE = "calendars.json"
 
 ADMIN_EMAIL = "3323jayden@gmail.com"  # 系統管理者帳號
 
-# 額度設定：Free (50次/10金幣), Pro (1000次/100金幣)
+# 額度設定：Free (50次對話/10金幣), Pro (1000次對話/100金幣)
 PLAN_LIMITS = {
     "free": {"chat": 50, "coins": 10},
     "pro": {"chat": 1000, "coins": 100},
@@ -52,12 +52,10 @@ def hash_password(password: str) -> str:
 
 def verify_password(stored_password: str, provided_password: str) -> bool:
     """驗證密碼，同時相容舊的明碼與新的雜湊密碼"""
-    # 判斷是否已經是 64 字元的 SHA-256 雜湊
     if len(stored_password) == 64 and all(
         c in "0123456789abcdef" for c in stored_password.lower()
     ):
         return stored_password == hash_password(provided_password)
-    # 若為舊資料明碼，直接比對
     return stored_password == provided_password
 
 
@@ -85,7 +83,7 @@ calendars_data = load_data(CALENDARS_FILE, [])
 
 
 def check_and_update_usage(user_email, usage_type="chat"):
-    """檢查對話額度或金幣額度"""
+    """檢查與更新對話額度或繪圖金幣"""
     if user_email not in users:
         return False, "用戶不存在"
 
@@ -116,7 +114,6 @@ def check_and_update_usage(user_email, usage_type="chat"):
         return True, ""
 
     elif usage_type == "coins":
-        # 繪圖金幣檢查
         coins = user_info.get("coins", limits["coins"])
         if coins < 1 and user_email != ADMIN_EMAIL:
             return False, f"⚠️ 您的繪圖金幣不足 (剩餘 {coins} 金幣)！"
@@ -124,7 +121,7 @@ def check_and_update_usage(user_email, usage_type="chat"):
 
 
 # ==============================================================================
-# 3. 自動免登入檢測 & 登入介面
+# 3. 免登入檢測 & 登入介面
 # ==============================================================================
 url_user = st.query_params.get("user", "")
 
@@ -159,7 +156,7 @@ if not st.session_state.logged_in:
             with st.form("login_form"):
                 email_input = st.text_input("電子郵件 (Email)").strip().lower()
                 password_input = st.text_input("密碼", type="password")
-                remember_me = st.checkbox("保持登入狀態（下次自動登入）", value=True)
+                remember_me = st.checkbox("保持登入狀態", value=True)
                 submit_login = st.form_submit_button(
                     "🚀 登入系統", use_container_width=True, type="primary"
                 )
@@ -168,11 +165,9 @@ if not st.session_state.logged_in:
                     if email_input in users and verify_password(
                         users[email_input]["password"], password_input
                     ):
-                        # 自動將舊明碼轉為雜湊碼儲存
                         if (
-                            users[email_input]["password"]
-                            == password_input  # 舊明碼
-                        ):
+                            users[email_input]["password"] == password_input
+                        ):  # 自動轉雜湊
                             users[email_input]["password"] = hash_password(
                                 password_input
                             )
@@ -182,10 +177,10 @@ if not st.session_state.logged_in:
                         st.session_state.user_email = email_input
                         if remember_me:
                             st.query_params["user"] = email_input
-                        st.success("🎉 登入成功！正在進入系統...")
+                        st.success("🎉 登入成功！")
                         st.rerun()
                     else:
-                        st.error("❌ 帳號或密碼輸入錯誤！")
+                        st.error("❌ 帳號或密碼錯誤！")
 
         with tab_reg:
             with st.form("register_form"):
@@ -200,39 +195,37 @@ if not st.session_state.logged_in:
                     if not reg_email or not reg_password or not reg_name:
                         st.error("請完整填寫所有欄位！")
                     elif reg_email in users:
-                        st.error("此電子郵件已經註冊過了！")
+                        st.error("此電子郵件已註冊！")
                     else:
                         role = "pro" if reg_email == ADMIN_EMAIL else "free"
-                        init_coins = PLAN_LIMITS[role]["coins"]
                         users[reg_email] = {
                             "name": reg_name,
-                            "password": hash_password(reg_password),  # 雜湊加密
+                            "password": hash_password(reg_password),
                             "role": role,
-                            "coins": init_coins,
+                            "coins": PLAN_LIMITS[role]["coins"],
                             "daily_usage": 0,
                             "last_use_date": str(date.today()),
                             "ai_profile": "",
                         }
                         save_data(USERS_FILE, users)
-                        st.success("🎉 註冊成功！請切換至「帳號登入」頁籤進行登入。")
+                        st.success("🎉 註冊成功，請登入！")
 
     st.stop()
 
 
 # ==============================================================================
-# 4. 側邊欄 (簡化版 + 單一頁面切換鈕 + 管理員後台)
+# 4. 側邊欄與模組切換 (方案 1)
 # ==============================================================================
 u_data = users.get(st.session_state.user_email, {})
 current_user_name = u_data.get("name", "會員")
 user_role = u_data.get("role", "free")
 user_coins = u_data.get(
-    "coins", PLAN_LIMITS.get(user_role, {}) .get("coins", 10)
+    "coins", PLAN_LIMITS.get(user_role, {}).get("coins", 10)
 )
 
 st.sidebar.title("🔐 會員專區")
 st.sidebar.success(f"歡迎，**{current_user_name}**！")
 
-# 身分與額度標籤
 chat_limit = PLAN_LIMITS.get(user_role, {}).get("chat", 50)
 st.sidebar.markdown(f"**身分**：`{user_role.upper()}`")
 st.sidebar.markdown(
@@ -242,34 +235,26 @@ st.sidebar.markdown(f"**繪圖金幣**：`🪙 {user_coins}` 個")
 
 st.sidebar.divider()
 
-# ✨【單一切換按鈕】快速切換核心介面
-if "active_mode" not in st.session_state:
-    st.session_state.active_mode = "🤖 AI 對話助理"
-
-btn_label = (
-    "📅 切換至行事曆檢視"
-    if st.session_state.active_mode == "🤖 AI 對話助理"
-    else "🤖 切換至 AI 對話助理"
+# 🔀 模組選擇區 (找回所有功能)
+main_mode = st.sidebar.radio(
+    "🎯 選擇功能模組",
+    [
+        "🤖 AI 對話助理",
+        "📅 視覺化日曆",
+        "🎨 AI 繪圖與圖片處理",
+        "🛠️ 媒體與文件工具箱",
+    ],
 )
-if st.sidebar.button(
-    btn_label, use_container_width=True, type="primary"
-):
-    if st.session_state.active_mode == "🤖 AI 對話助理":
-        st.session_state.active_mode = "📅 視覺化日曆"
-    else:
-        st.session_state.active_mode = "🤖 AI 對話助理"
-    st.rerun()
 
 st.sidebar.divider()
 
-# 🚪 安全登出按鈕
 if st.sidebar.button("🚪 安全登出", use_container_width=True):
     st.session_state.logged_in = False
     st.session_state.user_email = ""
     st.query_params.clear()
     st.rerun()
 
-# 🛡️ 管理員專屬後台 (隱藏舊密碼，只提供重設功能與金幣調整)
+# 🛡️ 管理員專屬後台
 if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
     st.sidebar.divider()
     with st.sidebar.expander("🛡️ 後台管理 (Admin Only)", expanded=False):
@@ -286,13 +271,11 @@ if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
                     ["free", "pro"],
                     index=0 if u_info.get("role") == "free" else 1,
                 )
-
                 new_coins = st.number_input(
                     "調整繪圖金幣數量",
                     min_value=0,
                     value=int(u_info.get("coins", 10)),
                 )
-
                 new_pwd = st.text_input(
                     "重設新密碼 (若無須修改請留空)",
                     type="password",
@@ -312,36 +295,34 @@ if st.session_state.logged_in and st.session_state.user_email == ADMIN_EMAIL:
 
 
 # ==============================================================================
-# 5. 主畫面 A：🤖 極簡 AI 對話助理 (自動判斷意圖 + 設定集中化)
+# 5. 模組 1：🤖 極簡 AI 對話助理
 # ==============================================================================
-if st.session_state.active_mode == "🤖 AI 對話助理":
+if main_mode == "🤖 AI 對話助理":
     st.title("🤖 AI 數位智囊")
 
-    # 個人設定與偏好控制項收納於頂部 Expander，不干擾聊天
-    with st.expander("⚙️ AI 個人化設定與模型偏好", expanded=False):
-        st.caption("設定您的個人背景與 AI 運作方式。")
+    with st.expander("⚙️ AI 個人化設定", expanded=False):
         current_profile = u_data.get("ai_profile", "")
         new_profile = st.text_area(
             "個人背景與習慣偏好：",
             value=current_profile,
-            placeholder="例如：我是大學生，習慣簡明扼要的回覆...",
+            placeholder="例如：我是學生，習慣簡明扼要的回覆...",
             height=80,
         )
         if st.button("💾 儲存 AI 個人化設定"):
-            users[st.session_state.user_email]["ai_profile"] = new_profile.strip()
+            users[st.session_state.user_email]["ai_profile"] = (
+                new_profile.strip()
+            )
             save_data(USERS_FILE, users)
             st.toast("✅ 偏好設定已更新！")
 
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
 
-    # 渲染聊天歷史
     for msg in st.session_state.chat_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # 對話框輸入
-    if prompt := st.chat_input("請輸入訊息 (AI 將自動識別意圖或幫您排行程)..."):
+    if prompt := st.chat_input("請輸入訊息 (AI 自動判斷意圖與排行程)..."):
         allowed, err_msg = check_and_update_usage(
             st.session_state.user_email, "chat"
         )
@@ -350,7 +331,6 @@ if st.session_state.active_mode == "🤖 AI 對話助理":
         elif "GROQ_API_KEY" not in st.secrets:
             st.error("⚠️ 未設定 GROQ_API_KEY！")
         else:
-            # 扣減額度
             users[st.session_state.user_email]["daily_usage"] = (
                 users[st.session_state.user_email].get("daily_usage", 0) + 1
             )
@@ -362,20 +342,17 @@ if st.session_state.active_mode == "🤖 AI 對話助理":
             with st.chat_message("user"):
                 st.markdown(prompt)
 
-            # AI 自動意圖判斷與回覆
             with st.chat_message("assistant"):
-                with st.spinner("AI 正在思考並判斷意圖..."):
+                with st.spinner("AI 正在思考..."):
                     try:
                         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-
-                        # 系統提示：自動識別意圖 + 支援行程規劃
                         sys_prompt = f"""
 你是一個智慧型助理。今天日期是 {date.today()}。
 使用者的個人偏好設定：{u_data.get('ai_profile', '無')}。
 
 【核心功能】
-1. 請自動判斷使用者的意圖（閒聊、問答、文案潤飾或行程規劃）。
-2. 若使用者提及要在特定日期安排行程/事項，請在回答最後附上一段標準 JSON 格式的行程建議指令，格式如：
+1. 請自動判斷使用者的意圖。
+2. 若使用者提及要在特定日期安排行程，請在回答最後附上一段標準 JSON 格式的行程建議指令，格式如：
 `[EVENT_ADD: {{"date": "YYYY-MM-DD", "title": "行程名稱", "category": "一般"}}]`
 3. 若只是普通閒聊或問答，則正常親切回答即可。
 """
@@ -394,7 +371,6 @@ if st.session_state.active_mode == "🤖 AI 對話助理":
 
                         ai_reply = response.choices[0].message.content
 
-                        # 自動剖析是否寫入行程
                         event_match = re.search(
                             r"\[EVENT_ADD:\s*({.*?})\]", ai_reply
                         )
@@ -422,17 +398,15 @@ if st.session_state.active_mode == "🤖 AI 對話助理":
 
 
 # ==============================================================================
-# 6. 主畫面 B：📅 視覺化日曆 (彈出式對話框 st.dialog，排版絕不亂跑)
+# 6. 模組 2：📅 視覺化日曆 (st.dialog 彈窗)
 # ==============================================================================
-elif st.session_state.active_mode == "📅 視覺化日曆":
+elif main_mode == "📅 視覺化日曆":
     st.title("📅 視覺化月曆與行程管理")
 
     user_email = st.session_state.user_email
     today = date.today()
 
-    active_events = [
-        e for e in events if e.get("creator") == user_email
-    ]
+    active_events = [e for e in events if e.get("creator") == user_email]
 
     c_y, c_m = st.columns(2)
     with c_y:
@@ -444,7 +418,6 @@ elif st.session_state.active_mode == "📅 視覺化日曆":
             "月份", min_value=1, max_value=12, value=today.month
         )
 
-    # 7x7 固定網格 CSS，完全不會因為表單拉撐
     st.markdown(
         """
         <style>
@@ -497,11 +470,9 @@ elif st.session_state.active_mode == "📅 視覺化日曆":
 
     st.divider()
 
-    # 📌 彈出式視窗定義 (利用 st.dialog)
     @st.dialog("📅 編輯與管理當日行程")
     def manage_events_dialog(target_date_str):
         st.subheader(f"📌 {target_date_str} 的行程")
-
         day_evs = [e for e in active_events if e.get("date") == target_date_str]
 
         if not day_evs:
@@ -542,7 +513,6 @@ elif st.session_state.active_mode == "📅 視覺化日曆":
                 else:
                     st.error("請輸入名稱！")
 
-    # 日期選擇觸發按鈕
     col_sel, col_btn = st.columns([3, 1])
     with col_sel:
         pick_date = st.date_input("選擇欲編輯的日期", value=today)
@@ -552,8 +522,126 @@ elif st.session_state.active_mode == "📅 視覺化日曆":
         if st.button("✏️ 彈出管理視窗", use_container_width=True, type="primary"):
             manage_events_dialog(pick_date.strftime("%Y-%m-%d"))
 
+
 # ==============================================================================
-# 7. 頁尾資訊
+# 7. 模組 3：🎨 AI 繪圖與圖片處理 (金幣扣點)
+# ==============================================================================
+elif main_mode == "🎨 AI 繪圖與圖片處理":
+    st.title("🎨 AI 影像繪製與編輯")
+
+    tab_gen, tab_edit = st.tabs(["✨ AI 文字生成圖片", "🖼️ 圖片編輯與微調"])
+
+    with tab_gen:
+        st.subheader("🎨 生成新圖片 (每次消耗 1 金幣)")
+        img_prompt = st.text_area(
+            "請輸入繪圖提示詞 (Prompt)：",
+            placeholder="A futuristic cyber city with neon lights...",
+            height=100,
+        )
+
+        if st.button("🚀 開始繪製圖片 (🪙 -1)", type="primary"):
+            allowed, err_msg = check_and_update_usage(
+                st.session_state.user_email, "coins"
+            )
+            if not allowed:
+                st.error(err_msg)
+            elif not img_prompt.strip():
+                st.error("請輸入提示詞！")
+            elif "HF_TOKEN" not in st.secrets:
+                st.error("⚠️ 未設定 HF_TOKEN！")
+            else:
+                try:
+                    with st.spinner("AI 繪圖中..."):
+                        client = InferenceClient(
+                            model="stabilityai/stable-diffusion-3.5-large",
+                            token=st.secrets["HF_TOKEN"],
+                        )
+                        image = client.text_to_image(img_prompt)
+
+                        # 成功後扣減金幣
+                        users[st.session_state.user_email]["coins"] -= 1
+                        save_data(USERS_FILE, users)
+
+                        st.image(
+                            image,
+                            caption="✨ 生成結果",
+                            use_container_width=True,
+                        )
+
+                        buf = io.BytesIO()
+                        image.save(buf, format="PNG")
+                        st.download_button(
+                            "📥 下載高解析度圖片",
+                            data=buf.getvalue(),
+                            file_name="generated_image.png",
+                            mime="image/png",
+                        )
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"❌ 繪圖失敗：{e}")
+
+    with tab_edit:
+        st.subheader("🖼️ 圖片基礎編輯")
+        up_img = st.file_uploader(
+            "上傳圖片", type=["jpg", "png", "jpeg", "webp"]
+        )
+        if up_img:
+            img = Image.open(up_img)
+            col_l, col_r = st.columns(2)
+            with col_l:
+                brightness = st.slider("亮度", 0.5, 2.0, 1.0)
+                contrast = st.slider("對比度", 0.5, 2.0, 1.0)
+            with col_r:
+                is_gray = st.checkbox("轉換為黑白灰階")
+
+            edited_img = img.copy()
+            if brightness != 1.0:
+                edited_img = ImageEnhance.Brightness(edited_img).enhance(
+                    brightness
+                )
+            if contrast != 1.0:
+                edited_img = ImageEnhance.Contrast(edited_img).enhance(
+                    contrast
+                )
+            if is_gray:
+                edited_img = ImageOps.grayscale(edited_img)
+
+            st.image(
+                edited_img, caption="編輯預覽", use_container_width=True
+            )
+
+
+# ==============================================================================
+# 8. 模組 4：🛠️ 媒體與文件工具箱 (音訊/PDF)
+# ==============================================================================
+elif main_mode == "🛠️ 媒體與文件工具箱":
+    st.title("🛠️ 多功能媒體與文件工具箱")
+
+    tab_doc, tab_media = st.tabs(["📄 PDF / 文件讀取", "🎵 媒體工具簡介"])
+
+    with tab_doc:
+        st.subheader("📄 PDF 文字提取")
+        pdf_file = st.file_uploader("上傳 PDF 文件", type=["pdf"])
+        if pdf_file:
+            try:
+                reader = pypdf.PdfReader(pdf_file)
+                text = ""
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
+                st.text_area("📄 提取出的文字內容：", value=text, height=300)
+            except Exception as e:
+                st.error(f"解析 PDF 失敗：{e}")
+
+    with tab_media:
+        st.subheader("🎵 音訊與影片處理說明")
+        st.info("""
+        💡 **音訊與影片轉檔提示**：
+        若需要進行 MP3 轉 MP4、影片提取音訊或剪輯，可使用 Python 的 `moviepy` 或 `pydub` 程式庫整合處理。
+        例如：上傳音訊 + 背景圖合成了 MP4 影片，即可直接在瀏覽器下載！
+        """)
+
+# ==============================================================================
+# 9. 頁尾資訊
 # ==============================================================================
 st.divider()
 st.markdown(
